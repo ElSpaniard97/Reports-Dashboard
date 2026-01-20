@@ -97,6 +97,15 @@ body{
   letter-spacing:.2px;
 }
 
+.filters-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin-bottom:10px;
+}
+.filters-head h2{ margin:0; }
+
 .kv{
   display:grid;
   grid-template-columns: 80px 1fr;
@@ -237,7 +246,7 @@ body{
   gap:12px;
 }
 
-/* ---------- DASHBOARD (NEW) ---------- */
+/* ---------- DASHBOARD ---------- */
 .dash{
   background: rgba(16,26,48,.55);
   border:1px solid var(--border);
