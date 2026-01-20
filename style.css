@@ -47,7 +47,7 @@ body{
   border-radius:12px;
   cursor:pointer;
   background: linear-gradient(180deg, rgba(76,125,255,.22), rgba(76,125,255,.10));
-  box-shadow: var(--shadow);
+  box-shadow: 0 10px 30px rgba(0,0,0,.35);
   user-select:none;
 }
 .file-btn input{ display:none; }
@@ -86,9 +86,9 @@ body{
 .panel{
   background: rgba(16,26,48,.85);
   border:1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: 14px;
   padding:14px;
-  box-shadow: var(--shadow);
+  box-shadow: 0 10px 30px rgba(0,0,0,.35);
 }
 
 .panel h2{
@@ -245,8 +245,8 @@ body{
 .table-wrap{
   background: rgba(16,26,48,.55);
   border:1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.35);
   overflow:hidden;
 }
 
@@ -292,7 +292,7 @@ tbody tr:hover{
   text-align:center;
 }
 
-/* ---------- Multi-select facet filter tweaks ---------- */
+/* ---------- Facet list ---------- */
 
 .facet-actions{
   display:flex;
@@ -302,7 +302,7 @@ tbody tr:hover{
 
 .facet-list{
   margin-top:10px;
-  max-height:360px; /* increased for large model lists */
+  max-height:360px;
   overflow:auto;
   border:1px solid var(--border);
   border-radius:12px;
@@ -350,7 +350,6 @@ tbody tr:hover{
   border-radius:999px;
 }
 
-/* Optional: thinner scrollbar for the facet list (WebKit) */
 .facet-list::-webkit-scrollbar{ width:10px; }
 .facet-list::-webkit-scrollbar-thumb{
   background: rgba(255,255,255,.12);
