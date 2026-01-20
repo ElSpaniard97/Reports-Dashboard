@@ -1,19 +1,13 @@
 /* Inventory Reports Dashboard (Static)
    - Upload CSV
-   - Faceted filtering:
-       * Selecting filters reduces dataset
-       * Filter option lists update based on remaining dataset
-       * Counts update based on remaining dataset
-   - Collapsible filters (all)
-   - Multi-select facet for low-cardinality columns
-   - Forced multi-select: "Model" always multi
-   - Auto-collapse after selecting (multi) / finishing input (text)
-   - Presets (localStorage)
-   - Sort by column
-   - Export filtered CSV
+   - Faceted filtering (options/counts react to selections)
+   - Collapsible filters (auto-collapse after selection)
+   - "Model" forced to multi-select (even if hundreds)
+   - Dashboard summary above table (updates on every filter)
+   - Sort + Export + Presets
 */
 
-const PRESETS_KEY = "inventoryDashboardPresets_v5"; // bumped (facet option behavior)
+const PRESETS_KEY = "inventoryDashboardPresets_v6"; // bumped (dashboard added)
 
 // Columns that should ALWAYS be multi-select options (even if many unique values)
 const FORCE_MULTI_COLUMNS = new Set(["model"]);
@@ -43,6 +37,10 @@ const filtersContainer = el("filtersContainer");
 
 const btnClear = el("btnClear");
 const btnExport = el("btnExport");
+
+// dashboard
+const kpiRow = el("kpiRow");
+const breakdownGrid = el("breakdownGrid");
 
 // presets
 const presetName = el("presetName");
@@ -108,6 +106,42 @@ function autoCollapseIfActive(col) {
   if (isActiveFilter(f)) f.collapsed = true;
 }
 
+function getUniqueCount(rows, colName) {
+  if (!colName) return 0;
+  const set = new Set();
+  for (const r of rows) {
+    const v = normalizeValue(r[colName]);
+    if (v) set.add(v);
+  }
+  return set.size;
+}
+
+function countBy(rows, colName) {
+  const m = new Map();
+  if (!colName) return m;
+  for (const r of rows) {
+    const v = normalizeValue(r[colName]) || "(Blank)";
+    m.set(v, (m.get(v) || 0) + 1);
+  }
+  return m;
+}
+
+function topN(map, n=6) {
+  return Array.from(map.entries())
+    .sort((a,b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, n);
+}
+
+// Try to find a column by common names (case-insensitive)
+function findColumnName(candidates) {
+  const lower = new Map(columns.map(c => [c.toLowerCase(), c]));
+  for (const cand of candidates) {
+    const key = cand.toLowerCase();
+    if (lower.has(key)) return lower.get(key);
+  }
+  return null;
+}
+
 // ---------- Presets ----------
 function readPresets() {
   try {
@@ -151,7 +185,6 @@ function applyPresetPayload(payload) {
 
 // ---------- Matching logic (facets) ----------
 function rowMatchesFilters(row, excludeCol = null) {
-  // global always applies
   const g = toLower(filterState.global);
   if (g) {
     let found = false;
@@ -161,7 +194,6 @@ function rowMatchesFilters(row, excludeCol = null) {
     if (!found) return false;
   }
 
-  // per-column filters (AND across columns)
   for (const c of columns) {
     if (excludeCol && c === excludeCol) continue;
 
@@ -188,16 +220,124 @@ function rowMatchesFilters(row, excludeCol = null) {
   return true;
 }
 
-// For building each filter’s option list, we compute counts based on all OTHER active filters.
 function getFacetCountsForColumn(col) {
   const counts = new Map();
   for (const r of rawRows) {
-    if (!rowMatchesFilters(r, col)) continue; // exclude current column’s filter
+    if (!rowMatchesFilters(r, col)) continue;
     const v = normalizeValue(r[col]);
     if (!v) continue;
     counts.set(v, (counts.get(v) || 0) + 1);
   }
   return counts;
+}
+
+// ---------- Dashboard ----------
+function renderDashboard() {
+  // KPI + breakdowns based on CURRENT filtered rows
+  const rows = filteredRows || [];
+
+  const colAsset = findColumnName(["Asset Tag","AssetTag","Asset"]);
+  const colSerial = findColumnName(["Serial Number","Serial","SerialNumber"]);
+  const colModel  = findColumnName(["Model","Device Model","Model Name"]);
+  const colCategory = findColumnName(["Category","Device Type","Type"]);
+  const colCondition = findColumnName(["Condition","Grade"]);
+  const colLocation = findColumnName(["Location","Site"]);
+  const colCompany = findColumnName(["Company","Customer","Client"]);
+  const colLoggedBy = findColumnName(["Logged By","LoggedBy","Checked In By","Technician"]);
+  const colAssignedTo = findColumnName(["Employee Assign To","Assigned To","Assignee","Employee"]);
+
+  // KPIs
+  const kpis = [
+    { label: "Total Matching Rows", value: rows.length, sub: "Updates on every filter" },
+    { label: "Unique Asset Tags", value: getUniqueCount(rows, colAsset), sub: colAsset ? colAsset : "Column not found" },
+    { label: "Unique Serials", value: getUniqueCount(rows, colSerial), sub: colSerial ? colSerial : "Column not found" },
+    { label: "Unique Models", value: getUniqueCount(rows, colModel), sub: colModel ? colModel : "Column not found" },
+  ];
+
+  kpiRow.innerHTML = "";
+  for (const k of kpis) {
+    const card = document.createElement("div");
+    card.className = "kpi";
+
+    const l = document.createElement("div");
+    l.className = "label";
+    l.textContent = k.label;
+
+    const v = document.createElement("div");
+    v.className = "value";
+    v.textContent = String(k.value);
+
+    const s = document.createElement("div");
+    s.className = "sub";
+    s.textContent = k.sub;
+
+    card.appendChild(l);
+    card.appendChild(v);
+    card.appendChild(s);
+
+    kpiRow.appendChild(card);
+  }
+
+  // Breakdowns (Top values)
+  const breakdowns = [
+    { title: "Category", col: colCategory },
+    { title: "Condition", col: colCondition },
+    { title: "Location", col: colLocation },
+    { title: "Company", col: colCompany },
+    { title: "Logged By", col: colLoggedBy },
+    { title: "Employee Assign To", col: colAssignedTo },
+  ];
+
+  breakdownGrid.innerHTML = "";
+  for (const b of breakdowns) {
+    const card = document.createElement("div");
+    card.className = "bd";
+
+    const t = document.createElement("div");
+    t.className = "title";
+    t.textContent = b.col ? `${b.title} (Top)` : `${b.title} (Column not found)`;
+
+    const list = document.createElement("div");
+    list.className = "list";
+
+    if (!b.col) {
+      const item = document.createElement("div");
+      item.className = "muted";
+      item.style.fontSize = "12px";
+      item.textContent = "No matching column in this CSV.";
+      list.appendChild(item);
+    } else if (!rows.length) {
+      const item = document.createElement("div");
+      item.className = "muted";
+      item.style.fontSize = "12px";
+      item.textContent = "No rows match current filters.";
+      list.appendChild(item);
+    } else {
+      const counts = countBy(rows, b.col);
+      const top = topN(counts, 6);
+      for (const [name, count] of top) {
+        const it = document.createElement("div");
+        it.className = "item";
+
+        const nm = document.createElement("div");
+        nm.className = "name";
+        nm.title = name;
+        nm.textContent = name;
+
+        const ct = document.createElement("div");
+        ct.className = "count";
+        ct.textContent = String(count);
+
+        it.appendChild(nm);
+        it.appendChild(ct);
+        list.appendChild(it);
+      }
+    }
+
+    card.appendChild(t);
+    card.appendChild(list);
+    breakdownGrid.appendChild(card);
+  }
 }
 
 // ---------- Sorting ----------
@@ -272,28 +412,12 @@ function renderTableBody(rows) {
   if (rows.length > RENDER_LIMIT) {
     setStatus(`Showing first ${RENDER_LIMIT} of ${rows.length} filtered rows (export includes all).`, "muted");
   } else {
-    setStatus("Loaded. Filters are faceted: options update as you filter.", "muted");
+    setStatus("Loaded. Dashboard + filters update automatically.", "muted");
   }
 }
 
-function applyFiltersAndRender() {
-  if (!rawRows.length) return;
-
-  const matched = rawRows.filter(r => rowMatchesFilters(r, null));
-  filteredRows = sortRows(matched);
-
-  rowCount.textContent = String(rawRows.length);
-  filteredCount.textContent = String(filteredRows.length);
-
-  renderTableBody(filteredRows);
-
-  // Critical: rebuild filters so option lists and counts react to current filter state
-  buildFiltersUI();
-}
-
-// ---------- Filter state initialization ----------
+// ---------- Filter typing decision ----------
 function isLowCardinalityByCounts(counts) {
-  // counts map reflects options after other filters applied
   const uniq = counts.size;
   return uniq > 0 && uniq <= 30;
 }
@@ -301,27 +425,12 @@ function isLowCardinalityByCounts(counts) {
 function ensureFilterStateForColumns() {
   for (const col of columns) {
     if (!filterState.columns[col]) {
-      // Determine type:
-      // - Forced multi (Model)
-      // - Or low-cardinality based on facet counts
       const facetCounts = getFacetCountsForColumn(col);
       const type = (isForcedMulti(col) || isLowCardinalityByCounts(facetCounts)) ? "multi" : "text";
-
-      filterState.columns[col] = {
-        type,
-        value: type === "multi" ? [] : "",
-        collapsed: false
-      };
+      filterState.columns[col] = { type, value: type === "multi" ? [] : "", collapsed: false };
     } else {
       const f = filterState.columns[col];
-
-      // Force multi for Model even if older preset had text
-      if (isForcedMulti(col) && f.type !== "multi") {
-        f.type = "multi";
-        f.value = [];
-      }
-
-      // schema guards
+      if (isForcedMulti(col) && f.type !== "multi") { f.type = "multi"; f.value = []; }
       if (f.type === "multi" && !Array.isArray(f.value)) f.value = [];
       if (f.type === "text" && Array.isArray(f.value)) f.value = "";
       if (typeof f.collapsed !== "boolean") f.collapsed = false;
@@ -329,7 +438,7 @@ function ensureFilterStateForColumns() {
   }
 }
 
-// ---------- Filters UI (collapsible + faceted options) ----------
+// ---------- Filters UI ----------
 function buildFilterHeader(col, f, wrap) {
   const header = document.createElement("div");
   header.className = "filter-header";
@@ -377,8 +486,6 @@ function buildFilterHeader(col, f, wrap) {
 function buildFiltersUI() {
   if (!rawRows.length) return;
 
-  // Preserve existing search text per filter across rebuilds (optional convenience)
-  // This is intentionally minimal (no state persistence for option search text).
   const prevSearchText = new Map();
   for (const node of filtersContainer.querySelectorAll("input[data-filter-search='1']")) {
     const col = node.getAttribute("data-col");
@@ -391,7 +498,6 @@ function buildFiltersUI() {
   for (const col of columns) {
     const f = filterState.columns[col];
 
-    // IMPORTANT: dynamically adjust filter type based on facet counts, except forced multi
     const facetCounts = getFacetCountsForColumn(col);
     if (!isForcedMulti(col)) {
       const shouldBeMulti = isLowCardinalityByCounts(facetCounts);
@@ -408,7 +514,7 @@ function buildFiltersUI() {
     const body = document.createElement("div");
     body.className = "filter-body";
 
-    // TEXT FILTER
+    // TEXT
     if (f.type === "text") {
       const row = document.createElement("div");
       row.className = "row";
@@ -456,15 +562,11 @@ function buildFiltersUI() {
       continue;
     }
 
-    // MULTI-SELECT FACET FILTER (FACETED COUNTS)
+    // MULTI (facet)
     const selected = new Set(Array.isArray(f.value) ? f.value : []);
-
-    // Build option universe from facetCounts (i.e., only values that exist under current other filters)
-    // Keep selected values visible even if facetCounts says 0 (edge case), so user can unselect.
     const optionSet = new Set(facetCounts.keys());
     for (const v of selected) optionSet.add(v);
 
-    // Sort options: highest count first, then alpha
     const options = Array.from(optionSet).sort((a,b) => {
       const ca = facetCounts.get(a) || 0;
       const cb = facetCounts.get(b) || 0;
@@ -488,7 +590,6 @@ function buildFiltersUI() {
     btnAll.textContent = "Select All (visible)";
     btnAll.addEventListener("click", (ev) => {
       ev.stopPropagation();
-      // select all visible options after search filter applied and with non-zero count
       const ft = toLower(search.value);
       const visible = options.filter(v => (!ft || toLower(v).includes(ft)) && ((facetCounts.get(v) || 0) > 0));
       filterState.columns[col].value = visible;
@@ -516,7 +617,6 @@ function buildFiltersUI() {
       const ft = toLower(search.value);
       list.innerHTML = "";
 
-      // Hide zero-count options unless selected (selected should remain visible for unchecking)
       const visible = options.filter(v => {
         if (ft && !toLower(v).includes(ft)) return false;
         const count = facetCounts.get(v) || 0;
@@ -547,10 +647,7 @@ function buildFiltersUI() {
           else selected.delete(v);
 
           filterState.columns[col].value = Array.from(selected);
-
-          // Auto-collapse after selecting options
           autoCollapseIfActive(col);
-
           applyFiltersAndRender();
         });
 
@@ -586,6 +683,23 @@ function buildFiltersUI() {
     wrap.appendChild(body);
     filtersContainer.appendChild(wrap);
   }
+}
+
+// ---------- Apply filters (single source of truth) ----------
+function applyFiltersAndRender() {
+  if (!rawRows.length) return;
+
+  const matched = rawRows.filter(r => rowMatchesFilters(r, null));
+  filteredRows = sortRows(matched);
+
+  rowCount.textContent = String(rawRows.length);
+  filteredCount.textContent = String(filteredRows.length);
+
+  renderDashboard();
+  renderTableBody(filteredRows);
+
+  // Keep facet lists updated
+  buildFiltersUI();
 }
 
 // ---------- Export ----------
@@ -625,7 +739,6 @@ csvFile.addEventListener("change", (e) => {
       const data = results.data || [];
       const fields = results.meta?.fields || [];
       columns = fields.filter(Boolean);
-
       if (!columns.length && data.length) columns = Object.keys(data[0]);
 
       rawRows = data.map((r) => {
@@ -638,12 +751,12 @@ csvFile.addEventListener("change", (e) => {
       sortState = { col: null, dir: "asc" };
 
       enableControls(true);
-
       globalSearch.value = "";
+
       buildTableHeader();
-      applyFiltersAndRender();
       refreshPresetSelect();
 
+      applyFiltersAndRender();
       setStatus("CSV loaded successfully.", "muted");
     },
     error: () => setStatus("Failed to parse CSV. Confirm it is a valid .csv file with headers.", "danger")
