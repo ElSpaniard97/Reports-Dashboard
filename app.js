@@ -4,6 +4,8 @@
        * Collapsible filters (all filters)
        * Multi-select checkboxes (facet) for low-cardinality columns
        * Text "contains" input for high-cardinality columns
+   - Forced multi-select:
+       * "Model" is always multi-select, even if hundreds+ unique values
    - Auto-collapse after selecting options (multi-select)
    - Auto-collapse after finishing text input (Enter or blur)
    - Search within filter options
@@ -13,7 +15,10 @@
    - Export filtered CSV
 */
 
-const PRESETS_KEY = "inventoryDashboardPresets_v3"; // bumped (added collapsed state)
+const PRESETS_KEY = "inventoryDashboardPresets_v4"; // bumped (forced multi columns logic)
+
+// Columns that should ALWAYS be multi-select options (even if many unique values)
+const FORCE_MULTI_COLUMNS = new Set(["model"]);
 
 let rawRows = [];
 let filteredRows = [];
@@ -68,6 +73,10 @@ function normalizeValue(v) {
 
 function toLower(v) {
   return normalizeValue(v).toLowerCase();
+}
+
+function isForcedMulti(col) {
+  return FORCE_MULTI_COLUMNS.has(normalizeValue(col).toLowerCase());
 }
 
 function uniqueValuesForColumn(col) {
@@ -194,7 +203,7 @@ function buildTableHeader() {
 function ensureFilterStateForColumns() {
   for (const col of columns) {
     if (!filterState.columns[col]) {
-      const type = isLowCardinality(col) ? "multi" : "text";
+      const type = (isForcedMulti(col) || isLowCardinality(col)) ? "multi" : "text";
       filterState.columns[col] = {
         type,
         value: type === "multi" ? [] : "",
@@ -203,7 +212,14 @@ function ensureFilterStateForColumns() {
     } else {
       const f = filterState.columns[col];
 
-      // schema guard for old presets/states
+      // Force "Model" to be multi even if older presets stored it as text
+      const mustBeMulti = isForcedMulti(col);
+      if (mustBeMulti && f.type !== "multi") {
+        f.type = "multi";
+        f.value = [];
+      }
+
+      // schema guard
       if (f.type === "multi" && !Array.isArray(f.value)) f.value = [];
       if (f.type === "text" && Array.isArray(f.value)) f.value = "";
 
@@ -269,11 +285,9 @@ function buildFiltersUI() {
     wrap.className = "filter";
     wrap.classList.toggle("collapsed", !!f.collapsed);
 
-    // Header (click to collapse/expand)
     const header = buildFilterHeader(col, f, wrap);
     wrap.appendChild(header);
 
-    // Body (collapsible)
     const body = document.createElement("div");
     body.className = "filter-body";
 
@@ -291,8 +305,6 @@ function buildFiltersUI() {
       inp.addEventListener("input", () => {
         filterState.columns[col].value = inp.value;
         applyFiltersAndRender();
-        // do not auto-collapse on every keystroke
-        // rebuild header pill only (via full rebuild; acceptable for MVP)
         buildFiltersUI();
       });
 
@@ -304,7 +316,6 @@ function buildFiltersUI() {
       });
 
       inp.addEventListener("blur", () => {
-        // collapse when user finishes typing and it’s active
         autoCollapseIfActive(col);
         buildFiltersUI();
       });
@@ -317,7 +328,7 @@ function buildFiltersUI() {
       clearBtn.addEventListener("click", (ev) => {
         ev.stopPropagation();
         filterState.columns[col].value = "";
-        filterState.columns[col].collapsed = false; // reopen when cleared
+        filterState.columns[col].collapsed = false;
         buildFiltersUI();
         applyFiltersAndRender();
       });
@@ -334,7 +345,6 @@ function buildFiltersUI() {
     const uniq = uniqueValuesForColumn(col).sort((a,b)=>a.localeCompare(b));
     const selected = new Set(Array.isArray(f.value) ? f.value : []);
 
-    // Counts per option (full dataset)
     const counts = new Map();
     for (const r of rawRows) {
       const v = normalizeValue(r[col]);
@@ -367,7 +377,7 @@ function buildFiltersUI() {
     btnNone.addEventListener("click", (ev) => {
       ev.stopPropagation();
       filterState.columns[col].value = [];
-      filterState.columns[col].collapsed = false; // reopen when cleared
+      filterState.columns[col].collapsed = false;
       buildFiltersUI();
       applyFiltersAndRender();
     });
@@ -408,8 +418,6 @@ function buildFiltersUI() {
           else selected.delete(v);
 
           filterState.columns[col].value = Array.from(selected);
-
-          // Auto-collapse after selecting options
           autoCollapseIfActive(col);
 
           applyFiltersAndRender();
