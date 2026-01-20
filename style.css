@@ -151,20 +151,75 @@ body{
   padding:10px;
   background: rgba(255,255,255,.03);
 }
-.filter .label{
-  font-size:12px;
-  color:var(--muted);
-  margin-bottom:8px;
+
+/* Collapsible filter header */
+.filter-header{
   display:flex;
+  align-items:center;
   justify-content:space-between;
   gap:10px;
+  cursor:pointer;
+  user-select:none;
 }
-.filter .label .pill{
+
+.filter-title{
+  font-size:12px;
+  color:var(--muted);
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-width: 0;
+}
+
+.filter-title .name{
+  color:var(--muted);
+  font-size:12px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+.filter-right{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-shrink:0;
+}
+
+.pill{
   font-size:11px;
   padding:2px 8px;
   border-radius:999px;
   border:1px solid var(--border);
   color:var(--muted);
+  white-space:nowrap;
+}
+
+.chev{
+  width:28px;
+  height:28px;
+  border-radius:10px;
+  border:1px solid var(--border);
+  background: rgba(255,255,255,.05);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  color:var(--muted);
+  font-size:12px;
+  transition: transform .15s ease;
+}
+
+/* Body show/hide */
+.filter-body{
+  margin-top:10px;
+}
+
+.filter.collapsed .filter-body{
+  display:none;
+}
+
+.filter.collapsed .chev{
+  transform: rotate(-90deg);
 }
 
 .filter .row{
