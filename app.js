@@ -1,21 +1,24 @@
 /* Inventory Reports Dashboard (Static)
    - Upload CSV
-   - Dynamic filters (dropdown for low-cardinality columns; text otherwise)
+   - Dynamic filters:
+       * Multi-select checkboxes for low-cardinality columns
+       * Text "contains" input for high-cardinality columns
    - Save/Load/Rename/Delete presets (localStorage)
    - Sort by column
    - Export filtered CSV
 */
 
-const PRESETS_KEY = "inventoryDashboardPresets_v1";
+const PRESETS_KEY = "inventoryDashboardPresets_v2"; // bumped due to filter schema change
 
 let rawRows = [];        // original data: array of objects
 let filteredRows = [];   // filtered/sorted rows
 let columns = [];        // column headers
 
 // filter state
+// columns: { colName: { type: "text"|"multi", value: ""|string[] } }
 let filterState = {
   global: "",
-  columns: {} // { colName: { type: "text"|"select", value: "" } }
+  columns: {}
 };
 
 // sort state
@@ -70,7 +73,7 @@ function uniqueValuesForColumn(col) {
 }
 
 function isLowCardinality(col) {
-  // heuristic: <= 30 unique values AND not too many rows
+  // heuristic: <= 30 unique non-empty values
   const uniq = uniqueValuesForColumn(col);
   return uniq.length > 0 && uniq.length <= 30;
 }
@@ -133,11 +136,10 @@ function applyPresetPayload(payload) {
   filterState.columns = payload?.columns ?? {};
   sortState = payload?.sort ?? { col: null, dir: "asc" };
 
-  // update UI elements
   globalSearch.value = filterState.global;
 
-  // rebuild filters UI to reflect preset
-  buildFiltersUI();
+  buildFiltersUI();      // rebuild filters so UI matches state
+  buildTableHeader();    // ensure sort indicator matches
   applyFiltersAndRender();
 }
 
@@ -164,7 +166,7 @@ function buildTableHeader() {
         sortState.dir = "asc";
       }
       applyFiltersAndRender();
-      buildTableHeader(); // refresh sort indicators
+      buildTableHeader();
     });
 
     tr.appendChild(th);
@@ -173,20 +175,26 @@ function buildTableHeader() {
   tableHead.appendChild(tr);
 }
 
-function buildFiltersUI() {
-  filtersContainer.innerHTML = "";
-
-  // Ensure filterState has keys for every column
+function ensureFilterStateForColumns() {
   for (const col of columns) {
     if (!filterState.columns[col]) {
-      const type = isLowCardinality(col) ? "select" : "text";
-      filterState.columns[col] = { type, value: "" };
+      const type = isLowCardinality(col) ? "multi" : "text";
+      filterState.columns[col] = { type, value: type === "multi" ? [] : "" };
+    } else {
+      // schema guard: if older preset had select/text differences, normalize
+      const f = filterState.columns[col];
+      if (f.type === "multi" && !Array.isArray(f.value)) f.value = [];
+      if (f.type === "text" && Array.isArray(f.value)) f.value = "";
     }
   }
+}
+
+function buildFiltersUI() {
+  filtersContainer.innerHTML = "";
+  ensureFilterStateForColumns();
 
   for (const col of columns) {
     const f = filterState.columns[col];
-
     const wrap = document.createElement("div");
     wrap.className = "filter";
 
@@ -198,38 +206,23 @@ function buildFiltersUI() {
 
     const pill = document.createElement("div");
     pill.className = "pill";
-    pill.textContent = (f.type === "select") ? "Dropdown" : "Contains";
+
+    if (f.type === "multi") {
+      const selectedCount = (f.value || []).length;
+      pill.textContent = selectedCount ? `${selectedCount} selected` : "Multi-select";
+    } else {
+      pill.textContent = f.value ? "Active" : "Contains";
+    }
 
     label.appendChild(left);
     label.appendChild(pill);
     wrap.appendChild(label);
 
-    const row = document.createElement("div");
-    row.className = "row";
+    // Body
+    if (f.type === "text") {
+      const row = document.createElement("div");
+      row.className = "row";
 
-    if (f.type === "select") {
-      const sel = document.createElement("select");
-      sel.className = "select";
-      const optAll = document.createElement("option");
-      optAll.value = "";
-      optAll.textContent = "— Any —";
-      sel.appendChild(optAll);
-
-      const uniq = uniqueValuesForColumn(col).sort((a,b)=>a.localeCompare(b));
-      for (const v of uniq) {
-        const opt = document.createElement("option");
-        opt.value = v;
-        opt.textContent = v;
-        sel.appendChild(opt);
-      }
-      sel.value = f.value || "";
-      sel.addEventListener("change", () => {
-        filterState.columns[col].value = sel.value;
-        applyFiltersAndRender();
-      });
-
-      row.appendChild(sel);
-    } else {
       const inp = document.createElement("input");
       inp.className = "input";
       inp.type = "text";
@@ -238,29 +231,134 @@ function buildFiltersUI() {
       inp.addEventListener("input", () => {
         filterState.columns[col].value = inp.value;
         applyFiltersAndRender();
+        // update pill state quickly without rebuilding everything
+        buildFiltersUI();
       });
 
       row.appendChild(inp);
+
+      const clearBtn = document.createElement("button");
+      clearBtn.className = "small-btn";
+      clearBtn.textContent = "Clear";
+      clearBtn.addEventListener("click", () => {
+        filterState.columns[col].value = "";
+        buildFiltersUI();
+        applyFiltersAndRender();
+      });
+      row.appendChild(clearBtn);
+
+      wrap.appendChild(row);
+      filtersContainer.appendChild(wrap);
+      continue;
     }
 
-    const clearBtn = document.createElement("button");
-    clearBtn.className = "small-btn";
-    clearBtn.textContent = "Clear";
-    clearBtn.addEventListener("click", () => {
-      filterState.columns[col].value = "";
+    // Multi-select (checkbox list)
+    const uniq = uniqueValuesForColumn(col).sort((a,b)=>a.localeCompare(b));
+    const selected = new Set(f.value || []);
+
+    // Search within options
+    const search = document.createElement("input");
+    search.className = "input";
+    search.type = "text";
+    search.placeholder = "Search options…";
+
+    // Actions: Select All / Clear
+    const actionsRow = document.createElement("div");
+    actionsRow.className = "row";
+
+    const btnAll = document.createElement("button");
+    btnAll.className = "small-btn";
+    btnAll.textContent = "Select All";
+    btnAll.addEventListener("click", () => {
+      filterState.columns[col].value = [...uniq];
       buildFiltersUI();
       applyFiltersAndRender();
     });
-    row.appendChild(clearBtn);
 
-    wrap.appendChild(row);
+    const btnNone = document.createElement("button");
+    btnNone.className = "small-btn";
+    btnNone.textContent = "Clear";
+    btnNone.addEventListener("click", () => {
+      filterState.columns[col].value = [];
+      buildFiltersUI();
+      applyFiltersAndRender();
+    });
+
+    actionsRow.appendChild(btnAll);
+    actionsRow.appendChild(btnNone);
+
+    const list = document.createElement("div");
+    list.style.marginTop = "10px";
+    list.style.maxHeight = "220px";
+    list.style.overflow = "auto";
+    list.style.border = "1px solid var(--border)";
+    list.style.borderRadius = "12px";
+    list.style.padding = "8px";
+    list.style.background = "rgba(255,255,255,.03)";
+
+    function renderOptionList(filterText = "") {
+      const ft = toLower(filterText);
+      list.innerHTML = "";
+
+      const visible = uniq.filter(v => !ft || toLower(v).includes(ft));
+
+      if (!visible.length) {
+        const empty = document.createElement("div");
+        empty.className = "muted";
+        empty.style.fontSize = "12px";
+        empty.textContent = "No matching options.";
+        list.appendChild(empty);
+        return;
+      }
+
+      for (const v of visible) {
+        const line = document.createElement("label");
+        line.style.display = "flex";
+        line.style.alignItems = "center";
+        line.style.gap = "10px";
+        line.style.padding = "6px 6px";
+        line.style.borderRadius = "10px";
+        line.style.cursor = "pointer";
+
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = selected.has(v);
+
+        cb.addEventListener("change", () => {
+          if (cb.checked) selected.add(v);
+          else selected.delete(v);
+
+          filterState.columns[col].value = Array.from(selected);
+          applyFiltersAndRender();
+          buildFiltersUI(); // update the pill count
+        });
+
+        const text = document.createElement("div");
+        text.textContent = v;
+        text.style.fontSize = "13px";
+
+        line.appendChild(cb);
+        line.appendChild(text);
+
+        list.appendChild(line);
+      }
+    }
+
+    search.addEventListener("input", () => renderOptionList(search.value));
+
+    renderOptionList("");
+
+    wrap.appendChild(search);
+    wrap.appendChild(actionsRow);
+    wrap.appendChild(list);
+
     filtersContainer.appendChild(wrap);
   }
 }
 
 // ---------- Filtering / Sorting ----------
 function rowMatchesFilters(row) {
-  // global
+  // Global search: must be found in any column (OR across columns)
   const g = toLower(filterState.global);
   if (g) {
     let found = false;
@@ -270,17 +368,26 @@ function rowMatchesFilters(row) {
     if (!found) return false;
   }
 
-  // per-column
+  // Per-column: AND across columns
   for (const col of columns) {
     const f = filterState.columns[col];
+    if (!f) continue;
+
     const val = normalizeValue(row[col]);
 
-    if (!f || !f.value) continue;
+    if (f.type === "text") {
+      const q = normalizeValue(f.value);
+      if (!q) continue;
+      if (!toLower(val).includes(toLower(q))) return false;
+      continue;
+    }
 
-    if (f.type === "select") {
-      if (val !== f.value) return false;
-    } else {
-      if (!toLower(val).includes(toLower(f.value))) return false;
+    if (f.type === "multi") {
+      const selected = Array.isArray(f.value) ? f.value : [];
+      if (!selected.length) continue; // no selections means "Any"
+      // OR within the same column: match any selected value
+      if (!selected.includes(val)) return false;
+      continue;
     }
   }
 
@@ -292,7 +399,6 @@ function sortRows(rows) {
   const col = sortState.col;
   const dir = sortState.dir;
 
-  // Attempt numeric compare when both parse as finite numbers
   const sorted = [...rows].sort((a,b) => {
     const av = normalizeValue(a[col]);
     const bv = normalizeValue(b[col]);
@@ -327,7 +433,6 @@ function applyFiltersAndRender() {
 function renderTableBody(rows) {
   tableBody.innerHTML = "";
 
-  // render cap to protect browser if huge; still exports all
   const RENDER_LIMIT = 2000;
   const displayRows = rows.slice(0, RENDER_LIMIT);
 
@@ -384,11 +489,9 @@ csvFile.addEventListener("change", (e) => {
     complete: (results) => {
       const data = results.data || [];
 
-      // Clean rows: ensure all keys exist
       const fields = results.meta?.fields || [];
       columns = fields.filter(Boolean);
 
-      // If no headers detected, fallback
       if (!columns.length && data.length) {
         columns = Object.keys(data[0]);
       }
@@ -399,11 +502,9 @@ csvFile.addEventListener("change", (e) => {
         return obj;
       });
 
-      // reset state
       filterState = { global: "", columns: {} };
       sortState = { col: null, dir: "asc" };
 
-      // enable UI
       enableControls(true);
 
       globalSearch.value = "";
@@ -429,7 +530,10 @@ btnClear.addEventListener("click", () => {
   filterState.global = "";
   globalSearch.value = "";
   for (const c of columns) {
-    if (filterState.columns[c]) filterState.columns[c].value = "";
+    const f = filterState.columns[c];
+    if (!f) continue;
+    if (f.type === "text") f.value = "";
+    if (f.type === "multi") f.value = [];
   }
   sortState = { col: null, dir: "asc" };
   buildTableHeader();
@@ -521,4 +625,3 @@ btnDeletePreset.addEventListener("click", () => {
 // initial
 refreshPresetSelect();
 enableControls(false);
-
