@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Inventory Reports Dashboard</title>
   <link rel="stylesheet" href="style.css" />
-  <!-- Papa Parse (CSV parsing) -->
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 </head>
 <body>
@@ -70,11 +69,28 @@
       <section class="panel">
         <h2>Filters</h2>
         <div id="filtersContainer" class="filters"></div>
-        <div class="hint">Columns with few unique values become multi-select checklists (with counts). Model is always multi-select.</div>
+        <div class="hint">Facet behavior enabled: options update based on current filtered data. Model is always multi-select.</div>
       </section>
     </aside>
 
     <section class="content">
+      <!-- DASHBOARD SUMMARY (NEW) -->
+      <section id="dashboard" class="dash">
+        <div class="dash-head">
+          <div class="dash-title">Dashboard Summary</div>
+          <div class="dash-subtitle muted">Updates automatically when you filter</div>
+        </div>
+
+        <div id="kpiRow" class="kpis">
+          <!-- KPI cards injected by JS -->
+        </div>
+
+        <div id="breakdownGrid" class="breakdowns">
+          <!-- Breakdown cards injected by JS -->
+        </div>
+      </section>
+
+      <!-- TABLE -->
       <div class="table-wrap">
         <table id="dataTable">
           <thead id="tableHead"></thead>
