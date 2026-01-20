@@ -302,7 +302,7 @@ tbody tr:hover{
 
 .facet-list{
   margin-top:10px;
-  max-height:240px;
+  max-height:360px; /* increased for large model lists */
   overflow:auto;
   border:1px solid var(--border);
   border-radius:12px;
