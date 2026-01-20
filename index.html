@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Inventory Reports Dashboard</title>
+  <link rel="stylesheet" href="style.css" />
+  <!-- Papa Parse (CSV parsing) -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-title">Inventory Reports Dashboard</div>
+      <div class="brand-subtitle">Upload CSV • Filter • Save Views • Export</div>
+    </div>
+
+    <div class="top-actions">
+      <label class="file-btn">
+        <input id="csvFile" type="file" accept=".csv,text/csv" />
+        Upload CSV
+      </label>
+
+      <button id="btnClear" class="btn secondary" disabled>Clear Filters</button>
+      <button id="btnExport" class="btn" disabled>Export Filtered CSV</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="sidebar">
+      <section class="panel">
+        <h2>Dataset</h2>
+        <div class="kv">
+          <div class="k">File</div><div id="fileName" class="v">—</div>
+          <div class="k">Rows</div><div id="rowCount" class="v">—</div>
+          <div class="k">Filtered</div><div id="filteredCount" class="v">—</div>
+        </div>
+        <div id="statusMsg" class="status muted">Upload a CSV to begin.</div>
+      </section>
+
+      <section class="panel">
+        <h2>Search</h2>
+        <input id="globalSearch" class="input" type="text" placeholder="Search across all columns…" disabled />
+        <div class="hint">Tip: use this for quick triage (asset tag, user, model, site, etc.).</div>
+      </section>
+
+      <section class="panel">
+        <h2>Saved Views</h2>
+
+        <div class="preset-row">
+          <input id="presetName" class="input" type="text" placeholder="Preset name (e.g., 'Austin - In Stock')" disabled />
+          <button id="btnSavePreset" class="btn" disabled>Save</button>
+        </div>
+
+        <div class="preset-row">
+          <select id="presetSelect" class="select" disabled>
+            <option value="">— Select a preset —</option>
+          </select>
+          <button id="btnLoadPreset" class="btn secondary" disabled>Load</button>
+        </div>
+
+        <div class="preset-actions">
+          <button id="btnRenamePreset" class="btn secondary" disabled>Rename</button>
+          <button id="btnDeletePreset" class="btn danger" disabled>Delete</button>
+        </div>
+
+        <div class="hint">Presets are saved to this browser (localStorage).</div>
+      </section>
+
+      <section class="panel">
+        <h2>Filters</h2>
+        <div id="filtersContainer" class="filters"></div>
+        <div class="hint">Dropdowns appear for columns with few unique values.</div>
+      </section>
+    </aside>
+
+    <section class="content">
+      <div class="table-wrap">
+        <table id="dataTable">
+          <thead id="tableHead"></thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="muted">Static dashboard • No data leaves your browser</div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
