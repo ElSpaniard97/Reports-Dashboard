@@ -12,7 +12,7 @@
   <header class="topbar">
     <div class="brand">
       <div class="brand-title">Inventory Reports Dashboard</div>
-      <div class="brand-subtitle">Upload CSV • Filter • Save Views • Export</div>
+      <div class="brand-subtitle">Upload CSV • Filter (Multi-select) • Save Views • Export</div>
     </div>
 
     <div class="top-actions">
@@ -41,7 +41,7 @@
       <section class="panel">
         <h2>Search</h2>
         <input id="globalSearch" class="input" type="text" placeholder="Search across all columns…" disabled />
-        <div class="hint">Tip: use this for quick triage (asset tag, user, model, site, etc.).</div>
+        <div class="hint">Tip: use this for quick triage (asset tag, user, model, site, status, etc.).</div>
       </section>
 
       <section class="panel">
@@ -70,7 +70,7 @@
       <section class="panel">
         <h2>Filters</h2>
         <div id="filtersContainer" class="filters"></div>
-        <div class="hint">Dropdowns appear for columns with few unique values.</div>
+        <div class="hint">Columns with few unique values become multi-select checklists (with counts).</div>
       </section>
     </aside>
 
