@@ -1,13 +1,13 @@
 /* Inventory Reports Dashboard (Static)
-   - Upload CSV
-   - Faceted filtering (options/counts react to selections)
-   - Collapsible filters (auto-collapse after selection)
-   - "Model" forced to multi-select (even if hundreds)
-   - Dashboard summary above table (updates on every filter)
-   - Sort + Export + Presets
+   Changes requested:
+   - Filter dropdown bodies hidden until clicked (collapsed by default)
+   - Dropdowns stay open until manually closed (no auto-close)
+   - Add Apply button:
+       * Filter edits do NOT update results until Apply clicked
+       * Apply closes all filter dropdowns
 */
 
-const PRESETS_KEY = "inventoryDashboardPresets_v6"; // bumped (dashboard added)
+const PRESETS_KEY = "inventoryDashboardPresets_v7";
 
 // Columns that should ALWAYS be multi-select options (even if many unique values)
 const FORCE_MULTI_COLUMNS = new Set(["model"]);
@@ -16,9 +16,16 @@ let rawRows = [];
 let filteredRows = [];
 let columns = [];
 
-let filterState = {
+// Applied state drives table/dashboard + facet counts
+let appliedState = {
   global: "",
   columns: {} // { col: { type:"text"|"multi", value:""|string[], collapsed:boolean } }
+};
+
+// Draft state drives UI edits
+let draftState = {
+  global: "",
+  columns: {}
 };
 
 let sortState = { col: null, dir: "asc" };
@@ -37,6 +44,7 @@ const filtersContainer = el("filtersContainer");
 
 const btnClear = el("btnClear");
 const btnExport = el("btnExport");
+const btnApply = el("btnApply");
 
 // dashboard
 const kpiRow = el("kpiRow");
@@ -73,12 +81,8 @@ function isForcedMulti(col) {
   return FORCE_MULTI_COLUMNS.has(normalizeValue(col).toLowerCase());
 }
 
-function escapeCsvValue(v) {
-  const s = normalizeValue(v);
-  if (s.includes('"') || s.includes(",") || s.includes("\n")) {
-    return `"${s.replaceAll('"', '""')}"`;
-  }
-  return s;
+function deepClone(obj) {
+  return JSON.parse(JSON.stringify(obj));
 }
 
 function enableControls(enabled) {
@@ -91,21 +95,121 @@ function enableControls(enabled) {
   btnExport.disabled = !enabled;
   btnRenamePreset.disabled = !enabled;
   btnDeletePreset.disabled = !enabled;
+  btnApply.disabled = !enabled;
 }
 
-function isActiveFilter(f) {
-  if (!f) return false;
-  if (f.type === "text") return !!normalizeValue(f.value);
-  if (f.type === "multi") return Array.isArray(f.value) && f.value.length > 0;
-  return false;
+function escapeCsvValue(v) {
+  const s = normalizeValue(v);
+  if (s.includes('"') || s.includes(",") || s.includes("\n")) {
+    return `"${s.replaceAll('"', '""')}"`;
+  }
+  return s;
 }
 
-function autoCollapseIfActive(col) {
-  const f = filterState.columns[col];
-  if (!f) return;
-  if (isActiveFilter(f)) f.collapsed = true;
+function isDirty() {
+  // Compare applied vs draft (global + columns values/types). Ignore collapsed differences.
+  const a = deepClone(appliedState);
+  const d = deepClone(draftState);
+  for (const c of Object.keys(a.columns || {})) delete a.columns[c].collapsed;
+  for (const c of Object.keys(d.columns || {})) delete d.columns[c].collapsed;
+  return JSON.stringify(a) !== JSON.stringify(d);
 }
 
+function updateApplyButtonState() {
+  if (!rawRows.length) {
+    btnApply.disabled = true;
+    return;
+  }
+  btnApply.disabled = !isDirty();
+  if (isDirty()) setStatus("Pending changes. Click Apply to refresh results.", "muted");
+}
+
+// ---------- Matching logic uses APPLIED state ----------
+function rowMatchesApplied(row, excludeCol = null) {
+  const g = toLower(appliedState.global);
+  if (g) {
+    let found = false;
+    for (const c of columns) {
+      if (toLower(row[c]).includes(g)) { found = true; break; }
+    }
+    if (!found) return false;
+  }
+
+  for (const c of columns) {
+    if (excludeCol && c === excludeCol) continue;
+
+    const f = appliedState.columns[c];
+    if (!f) continue;
+
+    const val = normalizeValue(row[c]);
+
+    if (f.type === "text") {
+      const q = normalizeValue(f.value);
+      if (!q) continue;
+      if (!toLower(val).includes(toLower(q))) return false;
+      continue;
+    }
+
+    if (f.type === "multi") {
+      const selected = Array.isArray(f.value) ? f.value : [];
+      if (!selected.length) continue;
+      if (!selected.includes(val)) return false;
+      continue;
+    }
+  }
+
+  return true;
+}
+
+// Facet counts are based on APPLIED filters (stable until Apply)
+function getFacetCountsForColumn(col) {
+  const counts = new Map();
+  for (const r of rawRows) {
+    if (!rowMatchesApplied(r, col)) continue;
+    const v = normalizeValue(r[col]);
+    if (!v) continue;
+    counts.set(v, (counts.get(v) || 0) + 1);
+  }
+  return counts;
+}
+
+function isLowCardinalityByCounts(counts) {
+  const uniq = counts.size;
+  return uniq > 0 && uniq <= 30;
+}
+
+function ensureStateSchemas() {
+  for (const col of columns) {
+    // applied
+    if (!appliedState.columns[col]) {
+      const facetCounts = getFacetCountsForColumn(col);
+      const type = (isForcedMulti(col) || isLowCardinalityByCounts(facetCounts)) ? "multi" : "text";
+      appliedState.columns[col] = { type, value: type === "multi" ? [] : "", collapsed: true };
+    } else {
+      const f = appliedState.columns[col];
+      if (isForcedMulti(col) && f.type !== "multi") { f.type = "multi"; f.value = []; }
+      if (f.type === "multi" && !Array.isArray(f.value)) f.value = [];
+      if (f.type === "text" && Array.isArray(f.value)) f.value = "";
+      if (typeof f.collapsed !== "boolean") f.collapsed = true;
+    }
+
+    // draft
+    if (!draftState.columns[col]) {
+      // Mirror applied at creation time
+      draftState.columns[col] = deepClone(appliedState.columns[col]);
+      // Start collapsed by default
+      draftState.columns[col].collapsed = true;
+    } else {
+      const f = draftState.columns[col];
+      if (isForcedMulti(col) && f.type !== "multi") { f.type = "multi"; f.value = []; }
+      if (f.type === "multi" && !Array.isArray(f.value)) f.value = [];
+      if (f.type === "text" && Array.isArray(f.value)) f.value = "";
+      if (typeof f.collapsed !== "boolean") f.collapsed = true;
+    }
+  }
+}
+
+// ---------- Dashboard ----------
 function getUniqueCount(rows, colName) {
   if (!colName) return 0;
   const set = new Set();
@@ -132,7 +236,6 @@ function topN(map, n=6) {
     .slice(0, n);
 }
 
-// Try to find a column by common names (case-insensitive)
 function findColumnName(candidates) {
   const lower = new Map(columns.map(c => [c.toLowerCase(), c]));
   for (const cand of candidates) {
@@ -142,98 +245,7 @@ function findColumnName(candidates) {
   return null;
 }
 
-// ---------- Presets ----------
-function readPresets() {
-  try {
-    const raw = localStorage.getItem(PRESETS_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function writePresets(presets) {
-  localStorage.setItem(PRESETS_KEY, JSON.stringify(presets));
-}
-
-function refreshPresetSelect() {
-  const presets = readPresets();
-  presetSelect.innerHTML = `<option value="">— Select a preset —</option>`;
-  for (const p of presets) {
-    const opt = document.createElement("option");
-    opt.value = p.id;
-    opt.textContent = p.name;
-    presetSelect.appendChild(opt);
-  }
-}
-
-function currentPresetPayload() {
-  return { global: filterState.global, columns: filterState.columns, sort: sortState };
-}
-
-function applyPresetPayload(payload) {
-  filterState.global = payload?.global ?? "";
-  filterState.columns = payload?.columns ?? {};
-  sortState = payload?.sort ?? { col: null, dir: "asc" };
-
-  globalSearch.value = filterState.global;
-
-  buildFiltersUI();
-  buildTableHeader();
-  applyFiltersAndRender();
-}
-
-// ---------- Matching logic (facets) ----------
-function rowMatchesFilters(row, excludeCol = null) {
-  const g = toLower(filterState.global);
-  if (g) {
-    let found = false;
-    for (const c of columns) {
-      if (toLower(row[c]).includes(g)) { found = true; break; }
-    }
-    if (!found) return false;
-  }
-
-  for (const c of columns) {
-    if (excludeCol && c === excludeCol) continue;
-
-    const f = filterState.columns[c];
-    if (!f) continue;
-
-    const val = normalizeValue(row[c]);
-
-    if (f.type === "text") {
-      const q = normalizeValue(f.value);
-      if (!q) continue;
-      if (!toLower(val).includes(toLower(q))) return false;
-      continue;
-    }
-
-    if (f.type === "multi") {
-      const selected = Array.isArray(f.value) ? f.value : [];
-      if (!selected.length) continue;
-      if (!selected.includes(val)) return false;
-      continue;
-    }
-  }
-
-  return true;
-}
-
-function getFacetCountsForColumn(col) {
-  const counts = new Map();
-  for (const r of rawRows) {
-    if (!rowMatchesFilters(r, col)) continue;
-    const v = normalizeValue(r[col]);
-    if (!v) continue;
-    counts.set(v, (counts.get(v) || 0) + 1);
-  }
-  return counts;
-}
-
-// ---------- Dashboard ----------
 function renderDashboard() {
-  // KPI + breakdowns based on CURRENT filtered rows
   const rows = filteredRows || [];
 
   const colAsset = findColumnName(["Asset Tag","AssetTag","Asset"]);
@@ -246,9 +258,8 @@ function renderDashboard() {
   const colLoggedBy = findColumnName(["Logged By","LoggedBy","Checked In By","Technician"]);
   const colAssignedTo = findColumnName(["Employee Assign To","Assigned To","Assignee","Employee"]);
 
-  // KPIs
   const kpis = [
-    { label: "Total Matching Rows", value: rows.length, sub: "Updates on every filter" },
+    { label: "Total Matching Rows", value: rows.length, sub: "Based on applied filters" },
     { label: "Unique Asset Tags", value: getUniqueCount(rows, colAsset), sub: colAsset ? colAsset : "Column not found" },
     { label: "Unique Serials", value: getUniqueCount(rows, colSerial), sub: colSerial ? colSerial : "Column not found" },
     { label: "Unique Models", value: getUniqueCount(rows, colModel), sub: colModel ? colModel : "Column not found" },
@@ -274,11 +285,9 @@ function renderDashboard() {
     card.appendChild(l);
     card.appendChild(v);
     card.appendChild(s);
-
     kpiRow.appendChild(card);
   }
 
-  // Breakdowns (Top values)
   const breakdowns = [
     { title: "Category", col: colCategory },
     { title: "Condition", col: colCondition },
@@ -383,7 +392,8 @@ function buildTableHeader() {
       if (sortState.col === col) sortState.dir = (sortState.dir === "asc") ? "desc" : "asc";
       else { sortState.col = col; sortState.dir = "asc"; }
 
-      applyFiltersAndRender();
+      // Sorting is applied instantly (does not change filter criteria)
+      applyAppliedFiltersAndRender();
       buildTableHeader();
     });
 
@@ -412,33 +422,29 @@ function renderTableBody(rows) {
   if (rows.length > RENDER_LIMIT) {
     setStatus(`Showing first ${RENDER_LIMIT} of ${rows.length} filtered rows (export includes all).`, "muted");
   } else {
-    setStatus("Loaded. Dashboard + filters update automatically.", "muted");
+    setStatus("Ready. Edit filters, then click Apply.", "muted");
   }
 }
 
-// ---------- Filter typing decision ----------
-function isLowCardinalityByCounts(counts) {
-  const uniq = counts.size;
-  return uniq > 0 && uniq <= 30;
+// ---------- Apply (APPLIED state drives results) ----------
+function applyAppliedFiltersAndRender() {
+  if (!rawRows.length) return;
+
+  const matched = rawRows.filter(r => rowMatchesApplied(r, null));
+  filteredRows = sortRows(matched);
+
+  rowCount.textContent = String(rawRows.length);
+  filteredCount.textContent = String(filteredRows.length);
+
+  renderDashboard();
+  renderTableBody(filteredRows);
+
+  // Rebuild filter option lists using applied facet counts (stable until next Apply)
+  buildFiltersUI();
+  updateApplyButtonState();
 }
 
-function ensureFilterStateForColumns() {
-  for (const col of columns) {
-    if (!filterState.columns[col]) {
-      const facetCounts = getFacetCountsForColumn(col);
-      const type = (isForcedMulti(col) || isLowCardinalityByCounts(facetCounts)) ? "multi" : "text";
-      filterState.columns[col] = { type, value: type === "multi" ? [] : "", collapsed: false };
-    } else {
-      const f = filterState.columns[col];
-      if (isForcedMulti(col) && f.type !== "multi") { f.type = "multi"; f.value = []; }
-      if (f.type === "multi" && !Array.isArray(f.value)) f.value = [];
-      if (f.type === "text" && Array.isArray(f.value)) f.value = "";
-      if (typeof f.collapsed !== "boolean") f.collapsed = false;
-    }
-  }
-}
-
-// ---------- Filters UI ----------
+// ---------- Filters UI (DRAFT state is editable; dropdowns are manual) ----------
 function buildFilterHeader(col, f, wrap) {
   const header = document.createElement("div");
   header.className = "filter-header";
@@ -457,12 +463,11 @@ function buildFilterHeader(col, f, wrap) {
 
   const pill = document.createElement("div");
   pill.className = "pill";
-
   if (f.type === "multi") {
     const n = (Array.isArray(f.value) ? f.value : []).length;
     pill.textContent = n ? `${n} selected` : "Multi-select";
   } else {
-    pill.textContent = normalizeValue(f.value) ? "Active" : "Contains";
+    pill.textContent = normalizeValue(f.value) ? "Pending" : "Contains";
   }
 
   const chev = document.createElement("div");
@@ -486,6 +491,7 @@ function buildFilterHeader(col, f, wrap) {
 function buildFiltersUI() {
   if (!rawRows.length) return;
 
+  // Preserve in-filter option search text
   const prevSearchText = new Map();
   for (const node of filtersContainer.querySelectorAll("input[data-filter-search='1']")) {
     const col = node.getAttribute("data-col");
@@ -493,29 +499,33 @@ function buildFiltersUI() {
   }
 
   filtersContainer.innerHTML = "";
-  ensureFilterStateForColumns();
+  ensureStateSchemas();
 
   for (const col of columns) {
-    const f = filterState.columns[col];
+    const fDraft = draftState.columns[col];
 
+    // Determine type using APPLIED facet counts (stable until Apply), except forced multi
     const facetCounts = getFacetCountsForColumn(col);
     if (!isForcedMulti(col)) {
       const shouldBeMulti = isLowCardinalityByCounts(facetCounts);
-      if (shouldBeMulti && f.type !== "multi") { f.type = "multi"; f.value = []; f.collapsed = false; }
-      if (!shouldBeMulti && f.type !== "text") { f.type = "text"; f.value = ""; f.collapsed = false; }
+      if (shouldBeMulti && fDraft.type !== "multi") { fDraft.type = "multi"; fDraft.value = []; }
+      if (!shouldBeMulti && fDraft.type !== "text") { fDraft.type = "text"; fDraft.value = ""; }
+    } else if (fDraft.type !== "multi") {
+      fDraft.type = "multi";
+      fDraft.value = [];
     }
 
     const wrap = document.createElement("div");
     wrap.className = "filter";
-    wrap.classList.toggle("collapsed", !!f.collapsed);
+    wrap.classList.toggle("collapsed", !!fDraft.collapsed);
 
-    wrap.appendChild(buildFilterHeader(col, f, wrap));
+    wrap.appendChild(buildFilterHeader(col, fDraft, wrap));
 
     const body = document.createElement("div");
     body.className = "filter-body";
 
-    // TEXT
-    if (f.type === "text") {
+    // TEXT FILTER (draft only; does NOT apply immediately)
+    if (fDraft.type === "text") {
       const row = document.createElement("div");
       row.className = "row";
 
@@ -523,23 +533,11 @@ function buildFiltersUI() {
       inp.className = "input";
       inp.type = "text";
       inp.placeholder = "Contains…";
-      inp.value = f.value || "";
+      inp.value = fDraft.value || "";
 
       inp.addEventListener("input", () => {
-        filterState.columns[col].value = inp.value;
-        applyFiltersAndRender();
-      });
-
-      inp.addEventListener("keydown", (ev) => {
-        if (ev.key === "Enter") {
-          autoCollapseIfActive(col);
-          buildFiltersUI();
-        }
-      });
-
-      inp.addEventListener("blur", () => {
-        autoCollapseIfActive(col);
-        buildFiltersUI();
+        draftState.columns[col].value = inp.value;
+        updateApplyButtonState();
       });
 
       row.appendChild(inp);
@@ -549,9 +547,9 @@ function buildFiltersUI() {
       clearBtn.textContent = "Clear";
       clearBtn.addEventListener("click", (ev) => {
         ev.stopPropagation();
-        filterState.columns[col].value = "";
-        filterState.columns[col].collapsed = false;
-        applyFiltersAndRender();
+        draftState.columns[col].value = "";
+        updateApplyButtonState();
+        buildFiltersUI();
       });
 
       row.appendChild(clearBtn);
@@ -562,8 +560,9 @@ function buildFiltersUI() {
       continue;
     }
 
-    // MULTI (facet)
-    const selected = new Set(Array.isArray(f.value) ? f.value : []);
+    // MULTI-SELECT (draft selections; option list/counts from applied facetCounts)
+    const selected = new Set(Array.isArray(fDraft.value) ? fDraft.value : []);
+
     const optionSet = new Set(facetCounts.keys());
     for (const v of selected) optionSet.add(v);
 
@@ -591,10 +590,10 @@ function buildFiltersUI() {
     btnAll.addEventListener("click", (ev) => {
       ev.stopPropagation();
       const ft = toLower(search.value);
-      const visible = options.filter(v => (!ft || toLower(v).includes(ft)) && ((facetCounts.get(v) || 0) > 0));
-      filterState.columns[col].value = visible;
-      autoCollapseIfActive(col);
-      applyFiltersAndRender();
+      const visible = options.filter(v => (!ft || toLower(v).includes(ft)));
+      draftState.columns[col].value = visible;
+      updateApplyButtonState();
+      buildFiltersUI();
     });
 
     const btnNone = document.createElement("button");
@@ -602,9 +601,9 @@ function buildFiltersUI() {
     btnNone.textContent = "Clear";
     btnNone.addEventListener("click", (ev) => {
       ev.stopPropagation();
-      filterState.columns[col].value = [];
-      filterState.columns[col].collapsed = false;
-      applyFiltersAndRender();
+      draftState.columns[col].value = [];
+      updateApplyButtonState();
+      buildFiltersUI();
     });
 
     actionsRow.appendChild(btnAll);
@@ -617,12 +616,7 @@ function buildFiltersUI() {
       const ft = toLower(search.value);
       list.innerHTML = "";
 
-      const visible = options.filter(v => {
-        if (ft && !toLower(v).includes(ft)) return false;
-        const count = facetCounts.get(v) || 0;
-        if (count > 0) return true;
-        return selected.has(v);
-      });
+      const visible = options.filter(v => !ft || toLower(v).includes(ft));
 
       if (!visible.length) {
         const empty = document.createElement("div");
@@ -646,9 +640,13 @@ function buildFiltersUI() {
           if (cb.checked) selected.add(v);
           else selected.delete(v);
 
-          filterState.columns[col].value = Array.from(selected);
-          autoCollapseIfActive(col);
-          applyFiltersAndRender();
+          draftState.columns[col].value = Array.from(selected);
+          updateApplyButtonState();
+          // keep dropdown open until user closes it
+          // do not rebuild UI on every click; only update header pill count
+          buildFiltersUI();
+          // re-open the same filter body (since build rebuilds DOM)
+          draftState.columns[col].collapsed = false;
         });
 
         const textWrap = document.createElement("div");
@@ -685,23 +683,6 @@ function buildFiltersUI() {
   }
 }
 
-// ---------- Apply filters (single source of truth) ----------
-function applyFiltersAndRender() {
-  if (!rawRows.length) return;
-
-  const matched = rawRows.filter(r => rowMatchesFilters(r, null));
-  filteredRows = sortRows(matched);
-
-  rowCount.textContent = String(rawRows.length);
-  filteredCount.textContent = String(filteredRows.length);
-
-  renderDashboard();
-  renderTableBody(filteredRows);
-
-  // Keep facet lists updated
-  buildFiltersUI();
-}
-
 // ---------- Export ----------
 function exportFilteredCsv() {
   if (!filteredRows.length) return;
@@ -721,6 +702,55 @@ function exportFilteredCsv() {
   a.remove();
 
   URL.revokeObjectURL(url);
+}
+
+// ---------- Presets ----------
+function readPresets() {
+  try {
+    const raw = localStorage.getItem(PRESETS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePresets(presets) {
+  localStorage.setItem(PRESETS_KEY, JSON.stringify(presets));
+}
+
+function refreshPresetSelect() {
+  const presets = readPresets();
+  presetSelect.innerHTML = `<option value="">— Select a preset —</option>`;
+  for (const p of presets) {
+    const opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = p.name;
+    presetSelect.appendChild(opt);
+  }
+}
+
+function currentPresetPayload() {
+  // Save APPLIED state (not draft), since presets represent stored result views
+  return { global: appliedState.global, columns: appliedState.columns, sort: sortState };
+}
+
+function applyPresetPayload(payload) {
+  appliedState.global = payload?.global ?? "";
+  appliedState.columns = payload?.columns ?? {};
+  sortState = payload?.sort ?? { col: null, dir: "asc" };
+
+  // draft mirrors applied when loading preset
+  draftState = deepClone(appliedState);
+
+  // collapse all by default after load
+  for (const c of Object.keys(draftState.columns || {})) draftState.columns[c].collapsed = true;
+
+  globalSearch.value = draftState.global;
+
+  buildFiltersUI();
+  buildTableHeader();
+  applyAppliedFiltersAndRender();
+  updateApplyButtonState();
 }
 
 // ---------- Events ----------
@@ -747,47 +777,92 @@ csvFile.addEventListener("change", (e) => {
         return obj;
       });
 
-      filterState = { global: "", columns: {} };
+      appliedState = { global: "", columns: {} };
+      draftState = { global: "", columns: {} };
       sortState = { col: null, dir: "asc" };
 
       enableControls(true);
+
       globalSearch.value = "";
+      draftState.global = "";
 
       buildTableHeader();
       refreshPresetSelect();
 
-      applyFiltersAndRender();
-      setStatus("CSV loaded successfully.", "muted");
+      // initialize + render
+      ensureStateSchemas();
+      // start all collapsed
+      for (const c of columns) {
+        appliedState.columns[c].collapsed = true;
+        draftState.columns[c].collapsed = true;
+      }
+
+      buildFiltersUI();
+      applyAppliedFiltersAndRender();
+
+      setStatus("CSV loaded. Set filters, then click Apply.", "muted");
+      updateApplyButtonState();
     },
     error: () => setStatus("Failed to parse CSV. Confirm it is a valid .csv file with headers.", "danger")
   });
 });
 
+// Global search is DRAFT until Apply
 globalSearch.addEventListener("input", () => {
-  filterState.global = globalSearch.value;
-  applyFiltersAndRender();
+  draftState.global = globalSearch.value;
+  updateApplyButtonState();
+});
+
+btnApply.addEventListener("click", () => {
+  // Commit draft to applied
+  appliedState = deepClone(draftState);
+
+  // Close all dropdowns after apply
+  for (const c of Object.keys(draftState.columns || {})) {
+    draftState.columns[c].collapsed = true;
+    appliedState.columns[c].collapsed = true;
+  }
+
+  // Apply & render results
+  applyAppliedFiltersAndRender();
+
+  // Close all dropdowns visually
+  buildFiltersUI();
+
+  setStatus("Applied filters. Dropdowns closed.", "muted");
+  updateApplyButtonState();
 });
 
 btnClear.addEventListener("click", () => {
-  filterState.global = "";
+  draftState.global = "";
+  appliedState.global = "";
   globalSearch.value = "";
 
   for (const c of columns) {
-    const f = filterState.columns[c];
-    if (!f) continue;
-    if (f.type === "text") f.value = "";
-    if (f.type === "multi") f.value = [];
-    f.collapsed = false;
+    const a = appliedState.columns[c];
+    const d = draftState.columns[c];
+    if (a) {
+      if (a.type === "text") a.value = "";
+      if (a.type === "multi") a.value = [];
+      a.collapsed = true;
+    }
+    if (d) {
+      if (d.type === "text") d.value = "";
+      if (d.type === "multi") d.value = [];
+      d.collapsed = true;
+    }
   }
 
   sortState = { col: null, dir: "asc" };
   buildTableHeader();
-  applyFiltersAndRender();
+  buildFiltersUI();
+  applyAppliedFiltersAndRender();
+  updateApplyButtonState();
 });
 
 btnExport.addEventListener("click", exportFilteredCsv);
 
-// ---------- Preset handlers ----------
+// Presets
 btnSavePreset.addEventListener("click", () => {
   const name = normalizeValue(presetName.value);
   if (!name) {
