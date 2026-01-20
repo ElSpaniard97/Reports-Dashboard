@@ -40,7 +40,7 @@
       <section class="panel">
         <h2>Search</h2>
         <input id="globalSearch" class="input" type="text" placeholder="Search across all columns…" disabled />
-        <div class="hint">Tip: use this for quick triage (asset tag, user, model, site, status, etc.).</div>
+        <div class="hint">Tip: update filters/search, then click Apply to refresh results.</div>
       </section>
 
       <section class="panel">
@@ -67,27 +67,25 @@
       </section>
 
       <section class="panel">
-        <h2>Filters</h2>
+        <div class="filters-head">
+          <h2>Filters</h2>
+          <button id="btnApply" class="btn" disabled>Apply</button>
+        </div>
         <div id="filtersContainer" class="filters"></div>
-        <div class="hint">Facet behavior enabled: options update based on current filtered data. Model is always multi-select.</div>
+        <div class="hint">Dropdowns stay open until you close them. Results update only when you click Apply.</div>
       </section>
     </aside>
 
     <section class="content">
-      <!-- DASHBOARD SUMMARY (NEW) -->
+      <!-- DASHBOARD SUMMARY -->
       <section id="dashboard" class="dash">
         <div class="dash-head">
           <div class="dash-title">Dashboard Summary</div>
-          <div class="dash-subtitle muted">Updates automatically when you filter</div>
+          <div class="dash-subtitle muted">Updates when you click Apply</div>
         </div>
 
-        <div id="kpiRow" class="kpis">
-          <!-- KPI cards injected by JS -->
-        </div>
-
-        <div id="breakdownGrid" class="breakdowns">
-          <!-- Breakdown cards injected by JS -->
-        </div>
+        <div id="kpiRow" class="kpis"></div>
+        <div id="breakdownGrid" class="breakdowns"></div>
       </section>
 
       <!-- TABLE -->
