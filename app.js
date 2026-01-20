@@ -1,8 +1,11 @@
 /* Inventory Reports Dashboard (Static)
    - Upload CSV
    - Dynamic filters:
+       * Collapsible filters (all filters)
        * Multi-select checkboxes (facet) for low-cardinality columns
        * Text "contains" input for high-cardinality columns
+   - Auto-collapse after selecting options (multi-select)
+   - Auto-collapse after finishing text input (Enter or blur)
    - Search within filter options
    - Option counts shown in multi-select lists
    - Save/Load/Rename/Delete presets (localStorage)
@@ -10,20 +13,19 @@
    - Export filtered CSV
 */
 
-const PRESETS_KEY = "inventoryDashboardPresets_v2"; // bumped due to schema change (multi-select arrays)
+const PRESETS_KEY = "inventoryDashboardPresets_v3"; // bumped (added collapsed state)
 
-let rawRows = [];        // original data: array of objects
-let filteredRows = [];   // filtered/sorted rows
-let columns = [];        // column headers
+let rawRows = [];
+let filteredRows = [];
+let columns = [];
 
 // filter state
-// columns: { colName: { type: "text"|"multi", value: ""|string[] } }
+// columns: { colName: { type: "text"|"multi", value: ""|string[], collapsed?: boolean } }
 let filterState = {
   global: "",
   columns: {}
 };
 
-// sort state
 let sortState = { col: null, dir: "asc" };
 
 const el = (id) => document.getElementById(id);
@@ -75,7 +77,6 @@ function uniqueValuesForColumn(col) {
 }
 
 function isLowCardinality(col) {
-  // heuristic: <= 30 unique non-empty values
   const uniq = uniqueValuesForColumn(col);
   return uniq.length > 0 && uniq.length <= 30;
 }
@@ -98,6 +99,19 @@ function escapeCsvValue(v) {
     return `"${s.replaceAll('"', '""')}"`;
   }
   return s;
+}
+
+function isActiveFilter(f) {
+  if (!f) return false;
+  if (f.type === "text") return !!normalizeValue(f.value);
+  if (f.type === "multi") return Array.isArray(f.value) && f.value.length > 0;
+  return false;
+}
+
+function autoCollapseIfActive(col) {
+  const f = filterState.columns[col];
+  if (!f) return;
+  if (isActiveFilter(f)) f.collapsed = true;
 }
 
 // ---------- Presets ----------
@@ -140,8 +154,8 @@ function applyPresetPayload(payload) {
 
   globalSearch.value = filterState.global;
 
-  buildFiltersUI();      // rebuild filters so UI matches state
-  buildTableHeader();    // ensure sort indicator matches
+  buildFiltersUI();
+  buildTableHeader();
   applyFiltersAndRender();
 }
 
@@ -181,14 +195,67 @@ function ensureFilterStateForColumns() {
   for (const col of columns) {
     if (!filterState.columns[col]) {
       const type = isLowCardinality(col) ? "multi" : "text";
-      filterState.columns[col] = { type, value: type === "multi" ? [] : "" };
+      filterState.columns[col] = {
+        type,
+        value: type === "multi" ? [] : "",
+        collapsed: false
+      };
     } else {
-      // schema guard
       const f = filterState.columns[col];
+
+      // schema guard for old presets/states
       if (f.type === "multi" && !Array.isArray(f.value)) f.value = [];
       if (f.type === "text" && Array.isArray(f.value)) f.value = "";
+
+      if (typeof f.collapsed !== "boolean") {
+        f.collapsed = false;
+      }
     }
   }
+}
+
+function buildFilterHeader(col, f, wrap) {
+  const header = document.createElement("div");
+  header.className = "filter-header";
+
+  const titleWrap = document.createElement("div");
+  titleWrap.className = "filter-title";
+
+  const name = document.createElement("div");
+  name.className = "name";
+  name.textContent = col;
+
+  titleWrap.appendChild(name);
+
+  const right = document.createElement("div");
+  right.className = "filter-right";
+
+  const pill = document.createElement("div");
+  pill.className = "pill";
+
+  if (f.type === "multi") {
+    const n = (Array.isArray(f.value) ? f.value : []).length;
+    pill.textContent = n ? `${n} selected` : "Multi-select";
+  } else {
+    pill.textContent = normalizeValue(f.value) ? "Active" : "Contains";
+  }
+
+  const chev = document.createElement("div");
+  chev.className = "chev";
+  chev.textContent = "▾";
+
+  right.appendChild(pill);
+  right.appendChild(chev);
+
+  header.appendChild(titleWrap);
+  header.appendChild(right);
+
+  header.addEventListener("click", () => {
+    f.collapsed = !f.collapsed;
+    wrap.classList.toggle("collapsed", f.collapsed);
+  });
+
+  return header;
 }
 
 function buildFiltersUI() {
@@ -200,28 +267,17 @@ function buildFiltersUI() {
 
     const wrap = document.createElement("div");
     wrap.className = "filter";
+    wrap.classList.toggle("collapsed", !!f.collapsed);
 
-    const label = document.createElement("div");
-    label.className = "label";
+    // Header (click to collapse/expand)
+    const header = buildFilterHeader(col, f, wrap);
+    wrap.appendChild(header);
 
-    const left = document.createElement("div");
-    left.textContent = col;
+    // Body (collapsible)
+    const body = document.createElement("div");
+    body.className = "filter-body";
 
-    const pill = document.createElement("div");
-    pill.className = "pill";
-
-    if (f.type === "multi") {
-      const selectedCount = (Array.isArray(f.value) ? f.value : []).length;
-      pill.textContent = selectedCount ? `${selectedCount} selected` : "Multi-select";
-    } else {
-      pill.textContent = (f.value && String(f.value).trim()) ? "Active" : "Contains";
-    }
-
-    label.appendChild(left);
-    label.appendChild(pill);
-    wrap.appendChild(label);
-
-    // Text filter
+    // TEXT FILTER
     if (f.type === "text") {
       const row = document.createElement("div");
       row.className = "row";
@@ -231,10 +287,26 @@ function buildFiltersUI() {
       inp.type = "text";
       inp.placeholder = "Contains…";
       inp.value = f.value || "";
+
       inp.addEventListener("input", () => {
         filterState.columns[col].value = inp.value;
         applyFiltersAndRender();
-        buildFiltersUI(); // update pill state
+        // do not auto-collapse on every keystroke
+        // rebuild header pill only (via full rebuild; acceptable for MVP)
+        buildFiltersUI();
+      });
+
+      inp.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") {
+          autoCollapseIfActive(col);
+          buildFiltersUI();
+        }
+      });
+
+      inp.addEventListener("blur", () => {
+        // collapse when user finishes typing and it’s active
+        autoCollapseIfActive(col);
+        buildFiltersUI();
       });
 
       row.appendChild(inp);
@@ -242,24 +314,27 @@ function buildFiltersUI() {
       const clearBtn = document.createElement("button");
       clearBtn.className = "small-btn";
       clearBtn.textContent = "Clear";
-      clearBtn.addEventListener("click", () => {
+      clearBtn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
         filterState.columns[col].value = "";
+        filterState.columns[col].collapsed = false; // reopen when cleared
         buildFiltersUI();
         applyFiltersAndRender();
       });
 
       row.appendChild(clearBtn);
 
-      wrap.appendChild(row);
+      body.appendChild(row);
+      wrap.appendChild(body);
       filtersContainer.appendChild(wrap);
       continue;
     }
 
-    // Multi-select facet (checkbox list)
+    // MULTI-SELECT FACET FILTER
     const uniq = uniqueValuesForColumn(col).sort((a,b)=>a.localeCompare(b));
     const selected = new Set(Array.isArray(f.value) ? f.value : []);
 
-    // Counts per option (based on full dataset; stable and fast)
+    // Counts per option (full dataset)
     const counts = new Map();
     for (const r of rawRows) {
       const v = normalizeValue(r[col]);
@@ -267,21 +342,21 @@ function buildFiltersUI() {
       counts.set(v, (counts.get(v) || 0) + 1);
     }
 
-    // Search within options
     const search = document.createElement("input");
     search.className = "input";
     search.type = "text";
     search.placeholder = "Search options…";
 
-    // Actions
     const actionsRow = document.createElement("div");
     actionsRow.className = "facet-actions";
 
     const btnAll = document.createElement("button");
     btnAll.className = "small-btn";
     btnAll.textContent = "Select All";
-    btnAll.addEventListener("click", () => {
+    btnAll.addEventListener("click", (ev) => {
+      ev.stopPropagation();
       filterState.columns[col].value = [...uniq];
+      autoCollapseIfActive(col);
       buildFiltersUI();
       applyFiltersAndRender();
     });
@@ -289,8 +364,10 @@ function buildFiltersUI() {
     const btnNone = document.createElement("button");
     btnNone.className = "small-btn";
     btnNone.textContent = "Clear";
-    btnNone.addEventListener("click", () => {
+    btnNone.addEventListener("click", (ev) => {
+      ev.stopPropagation();
       filterState.columns[col].value = [];
+      filterState.columns[col].collapsed = false; // reopen when cleared
       buildFiltersUI();
       applyFiltersAndRender();
     });
@@ -298,7 +375,6 @@ function buildFiltersUI() {
     actionsRow.appendChild(btnAll);
     actionsRow.appendChild(btnNone);
 
-    // List
     const list = document.createElement("div");
     list.className = "facet-list";
 
@@ -325,13 +401,19 @@ function buildFiltersUI() {
         cb.type = "checkbox";
         cb.checked = selected.has(v);
 
+        cb.addEventListener("click", (ev) => ev.stopPropagation());
+
         cb.addEventListener("change", () => {
           if (cb.checked) selected.add(v);
           else selected.delete(v);
 
           filterState.columns[col].value = Array.from(selected);
+
+          // Auto-collapse after selecting options
+          autoCollapseIfActive(col);
+
           applyFiltersAndRender();
-          buildFiltersUI(); // updates pill count and keeps UI consistent
+          buildFiltersUI();
         });
 
         const textWrap = document.createElement("div");
@@ -350,26 +432,26 @@ function buildFiltersUI() {
 
         line.appendChild(cb);
         line.appendChild(textWrap);
-
         list.appendChild(line);
       }
     }
 
+    search.addEventListener("click", (ev) => ev.stopPropagation());
     search.addEventListener("input", () => renderOptionList(search.value));
 
     renderOptionList("");
 
-    wrap.appendChild(search);
-    wrap.appendChild(actionsRow);
-    wrap.appendChild(list);
+    body.appendChild(search);
+    body.appendChild(actionsRow);
+    body.appendChild(list);
 
+    wrap.appendChild(body);
     filtersContainer.appendChild(wrap);
   }
 }
 
 // ---------- Filtering / Sorting ----------
 function rowMatchesFilters(row) {
-  // Global search: must be found in any column (OR across columns)
   const g = toLower(filterState.global);
   if (g) {
     let found = false;
@@ -379,7 +461,6 @@ function rowMatchesFilters(row) {
     if (!found) return false;
   }
 
-  // Per-column: AND across columns
   for (const col of columns) {
     const f = filterState.columns[col];
     if (!f) continue;
@@ -395,8 +476,7 @@ function rowMatchesFilters(row) {
 
     if (f.type === "multi") {
       const selected = Array.isArray(f.value) ? f.value : [];
-      if (!selected.length) continue; // no selections means "Any"
-      // OR within same column
+      if (!selected.length) continue;
       if (!selected.includes(val)) return false;
       continue;
     }
@@ -444,7 +524,6 @@ function applyFiltersAndRender() {
 function renderTableBody(rows) {
   tableBody.innerHTML = "";
 
-  // render cap to protect browser if huge; export still includes all
   const RENDER_LIMIT = 2000;
   const displayRows = rows.slice(0, RENDER_LIMIT);
 
@@ -545,8 +624,11 @@ btnClear.addEventListener("click", () => {
   for (const c of columns) {
     const f = filterState.columns[c];
     if (!f) continue;
+
     if (f.type === "text") f.value = "";
     if (f.type === "multi") f.value = [];
+
+    f.collapsed = false;
   }
 
   sortState = { col: null, dir: "asc" };
