@@ -1,21 +1,19 @@
 /* Inventory Reports Dashboard (Static)
    - Upload CSV
-   - Dynamic filters:
-       * Collapsible filters (all filters)
-       * Multi-select checkboxes (facet) for low-cardinality columns
-       * Text "contains" input for high-cardinality columns
-   - Forced multi-select:
-       * "Model" is always multi-select, even if hundreds+ unique values
-   - Auto-collapse after selecting options (multi-select)
-   - Auto-collapse after finishing text input (Enter or blur)
-   - Search within filter options
-   - Option counts shown in multi-select lists
-   - Save/Load/Rename/Delete presets (localStorage)
+   - Faceted filtering:
+       * Selecting filters reduces dataset
+       * Filter option lists update based on remaining dataset
+       * Counts update based on remaining dataset
+   - Collapsible filters (all)
+   - Multi-select facet for low-cardinality columns
+   - Forced multi-select: "Model" always multi
+   - Auto-collapse after selecting (multi) / finishing input (text)
+   - Presets (localStorage)
    - Sort by column
    - Export filtered CSV
 */
 
-const PRESETS_KEY = "inventoryDashboardPresets_v4"; // bumped (forced multi columns logic)
+const PRESETS_KEY = "inventoryDashboardPresets_v5"; // bumped (facet option behavior)
 
 // Columns that should ALWAYS be multi-select options (even if many unique values)
 const FORCE_MULTI_COLUMNS = new Set(["model"]);
@@ -24,18 +22,16 @@ let rawRows = [];
 let filteredRows = [];
 let columns = [];
 
-// filter state
-// columns: { colName: { type: "text"|"multi", value: ""|string[], collapsed?: boolean } }
 let filterState = {
   global: "",
-  columns: {}
+  columns: {} // { col: { type:"text"|"multi", value:""|string[], collapsed:boolean } }
 };
 
 let sortState = { col: null, dir: "asc" };
 
 const el = (id) => document.getElementById(id);
 
-// UI elements
+// UI
 const csvFile = el("csvFile");
 const fileName = el("fileName");
 const rowCount = el("rowCount");
@@ -79,15 +75,12 @@ function isForcedMulti(col) {
   return FORCE_MULTI_COLUMNS.has(normalizeValue(col).toLowerCase());
 }
 
-function uniqueValuesForColumn(col) {
-  const set = new Set();
-  for (const r of rawRows) set.add(normalizeValue(r[col]));
-  return Array.from(set).filter(v => v !== "");
-}
-
-function isLowCardinality(col) {
-  const uniq = uniqueValuesForColumn(col);
-  return uniq.length > 0 && uniq.length <= 30;
+function escapeCsvValue(v) {
+  const s = normalizeValue(v);
+  if (s.includes('"') || s.includes(",") || s.includes("\n")) {
+    return `"${s.replaceAll('"', '""')}"`;
+  }
+  return s;
 }
 
 function enableControls(enabled) {
@@ -100,14 +93,6 @@ function enableControls(enabled) {
   btnExport.disabled = !enabled;
   btnRenamePreset.disabled = !enabled;
   btnDeletePreset.disabled = !enabled;
-}
-
-function escapeCsvValue(v) {
-  const s = normalizeValue(v);
-  if (s.includes('"') || s.includes(",") || s.includes("\n")) {
-    return `"${s.replaceAll('"', '""')}"`;
-  }
-  return s;
 }
 
 function isActiveFilter(f) {
@@ -149,11 +134,7 @@ function refreshPresetSelect() {
 }
 
 function currentPresetPayload() {
-  return {
-    global: filterState.global,
-    columns: filterState.columns,
-    sort: sortState
-  };
+  return { global: filterState.global, columns: filterState.columns, sort: sortState };
 }
 
 function applyPresetPayload(payload) {
@@ -168,7 +149,82 @@ function applyPresetPayload(payload) {
   applyFiltersAndRender();
 }
 
-// ---------- Build UI ----------
+// ---------- Matching logic (facets) ----------
+function rowMatchesFilters(row, excludeCol = null) {
+  // global always applies
+  const g = toLower(filterState.global);
+  if (g) {
+    let found = false;
+    for (const c of columns) {
+      if (toLower(row[c]).includes(g)) { found = true; break; }
+    }
+    if (!found) return false;
+  }
+
+  // per-column filters (AND across columns)
+  for (const c of columns) {
+    if (excludeCol && c === excludeCol) continue;
+
+    const f = filterState.columns[c];
+    if (!f) continue;
+
+    const val = normalizeValue(row[c]);
+
+    if (f.type === "text") {
+      const q = normalizeValue(f.value);
+      if (!q) continue;
+      if (!toLower(val).includes(toLower(q))) return false;
+      continue;
+    }
+
+    if (f.type === "multi") {
+      const selected = Array.isArray(f.value) ? f.value : [];
+      if (!selected.length) continue;
+      if (!selected.includes(val)) return false;
+      continue;
+    }
+  }
+
+  return true;
+}
+
+// For building each filter’s option list, we compute counts based on all OTHER active filters.
+function getFacetCountsForColumn(col) {
+  const counts = new Map();
+  for (const r of rawRows) {
+    if (!rowMatchesFilters(r, col)) continue; // exclude current column’s filter
+    const v = normalizeValue(r[col]);
+    if (!v) continue;
+    counts.set(v, (counts.get(v) || 0) + 1);
+  }
+  return counts;
+}
+
+// ---------- Sorting ----------
+function sortRows(rows) {
+  if (!sortState.col) return rows;
+
+  const col = sortState.col;
+  const dir = sortState.dir;
+
+  return [...rows].sort((a,b) => {
+    const av = normalizeValue(a[col]);
+    const bv = normalizeValue(b[col]);
+
+    const an = Number(av);
+    const bn = Number(bv);
+    const aNum = Number.isFinite(an) && av !== "";
+    const bNum = Number.isFinite(bn) && bv !== "";
+
+    let cmp;
+    if (aNum && bNum) cmp = an - bn;
+    else cmp = av.localeCompare(bv, undefined, { numeric: true, sensitivity: "base" });
+
+    return dir === "asc" ? cmp : -cmp;
+  });
+}
+
+// ---------- Table ----------
 function buildTableHeader() {
   tableHead.innerHTML = "";
   const tr = document.createElement("tr");
@@ -184,12 +240,9 @@ function buildTableHeader() {
     th.appendChild(sortSpan);
 
     th.addEventListener("click", () => {
-      if (sortState.col === col) {
-        sortState.dir = (sortState.dir === "asc") ? "desc" : "asc";
-      } else {
-        sortState.col = col;
-        sortState.dir = "asc";
-      }
+      if (sortState.col === col) sortState.dir = (sortState.dir === "asc") ? "desc" : "asc";
+      else { sortState.col = col; sortState.dir = "asc"; }
+
       applyFiltersAndRender();
       buildTableHeader();
     });
@@ -200,10 +253,60 @@ function buildTableHeader() {
   tableHead.appendChild(tr);
 }
 
+function renderTableBody(rows) {
+  tableBody.innerHTML = "";
+
+  const RENDER_LIMIT = 2000;
+  const displayRows = rows.slice(0, RENDER_LIMIT);
+
+  for (const r of displayRows) {
+    const tr = document.createElement("tr");
+    for (const c of columns) {
+      const td = document.createElement("td");
+      td.textContent = normalizeValue(r[c]);
+      tr.appendChild(td);
+    }
+    tableBody.appendChild(tr);
+  }
+
+  if (rows.length > RENDER_LIMIT) {
+    setStatus(`Showing first ${RENDER_LIMIT} of ${rows.length} filtered rows (export includes all).`, "muted");
+  } else {
+    setStatus("Loaded. Filters are faceted: options update as you filter.", "muted");
+  }
+}
+
+function applyFiltersAndRender() {
+  if (!rawRows.length) return;
+
+  const matched = rawRows.filter(r => rowMatchesFilters(r, null));
+  filteredRows = sortRows(matched);
+
+  rowCount.textContent = String(rawRows.length);
+  filteredCount.textContent = String(filteredRows.length);
+
+  renderTableBody(filteredRows);
+
+  // Critical: rebuild filters so option lists and counts react to current filter state
+  buildFiltersUI();
+}
+
+// ---------- Filter state initialization ----------
+function isLowCardinalityByCounts(counts) {
+  // counts map reflects options after other filters applied
+  const uniq = counts.size;
+  return uniq > 0 && uniq <= 30;
+}
+
 function ensureFilterStateForColumns() {
   for (const col of columns) {
     if (!filterState.columns[col]) {
-      const type = (isForcedMulti(col) || isLowCardinality(col)) ? "multi" : "text";
+      // Determine type:
+      // - Forced multi (Model)
+      // - Or low-cardinality based on facet counts
+      const facetCounts = getFacetCountsForColumn(col);
+      const type = (isForcedMulti(col) || isLowCardinalityByCounts(facetCounts)) ? "multi" : "text";
+
       filterState.columns[col] = {
         type,
         value: type === "multi" ? [] : "",
@@ -212,24 +315,21 @@ function ensureFilterStateForColumns() {
     } else {
       const f = filterState.columns[col];
 
-      // Force "Model" to be multi even if older presets stored it as text
-      const mustBeMulti = isForcedMulti(col);
-      if (mustBeMulti && f.type !== "multi") {
+      // Force multi for Model even if older preset had text
+      if (isForcedMulti(col) && f.type !== "multi") {
         f.type = "multi";
         f.value = [];
       }
 
-      // schema guard
+      // schema guards
       if (f.type === "multi" && !Array.isArray(f.value)) f.value = [];
       if (f.type === "text" && Array.isArray(f.value)) f.value = "";
-
-      if (typeof f.collapsed !== "boolean") {
-        f.collapsed = false;
-      }
+      if (typeof f.collapsed !== "boolean") f.collapsed = false;
     }
   }
 }
 
+// ---------- Filters UI (collapsible + faceted options) ----------
 function buildFilterHeader(col, f, wrap) {
   const header = document.createElement("div");
   header.className = "filter-header";
@@ -275,18 +375,35 @@ function buildFilterHeader(col, f, wrap) {
 }
 
 function buildFiltersUI() {
+  if (!rawRows.length) return;
+
+  // Preserve existing search text per filter across rebuilds (optional convenience)
+  // This is intentionally minimal (no state persistence for option search text).
+  const prevSearchText = new Map();
+  for (const node of filtersContainer.querySelectorAll("input[data-filter-search='1']")) {
+    const col = node.getAttribute("data-col");
+    prevSearchText.set(col, node.value || "");
+  }
+
   filtersContainer.innerHTML = "";
   ensureFilterStateForColumns();
 
   for (const col of columns) {
     const f = filterState.columns[col];
 
+    // IMPORTANT: dynamically adjust filter type based on facet counts, except forced multi
+    const facetCounts = getFacetCountsForColumn(col);
+    if (!isForcedMulti(col)) {
+      const shouldBeMulti = isLowCardinalityByCounts(facetCounts);
+      if (shouldBeMulti && f.type !== "multi") { f.type = "multi"; f.value = []; f.collapsed = false; }
+      if (!shouldBeMulti && f.type !== "text") { f.type = "text"; f.value = ""; f.collapsed = false; }
+    }
+
     const wrap = document.createElement("div");
     wrap.className = "filter";
     wrap.classList.toggle("collapsed", !!f.collapsed);
 
-    const header = buildFilterHeader(col, f, wrap);
-    wrap.appendChild(header);
+    wrap.appendChild(buildFilterHeader(col, f, wrap));
 
     const body = document.createElement("div");
     body.className = "filter-body";
@@ -305,7 +422,6 @@ function buildFiltersUI() {
       inp.addEventListener("input", () => {
         filterState.columns[col].value = inp.value;
         applyFiltersAndRender();
-        buildFiltersUI();
       });
 
       inp.addEventListener("keydown", (ev) => {
@@ -329,7 +445,6 @@ function buildFiltersUI() {
         ev.stopPropagation();
         filterState.columns[col].value = "";
         filterState.columns[col].collapsed = false;
-        buildFiltersUI();
         applyFiltersAndRender();
       });
 
@@ -341,33 +456,43 @@ function buildFiltersUI() {
       continue;
     }
 
-    // MULTI-SELECT FACET FILTER
-    const uniq = uniqueValuesForColumn(col).sort((a,b)=>a.localeCompare(b));
+    // MULTI-SELECT FACET FILTER (FACETED COUNTS)
     const selected = new Set(Array.isArray(f.value) ? f.value : []);
 
-    const counts = new Map();
-    for (const r of rawRows) {
-      const v = normalizeValue(r[col]);
-      if (!v) continue;
-      counts.set(v, (counts.get(v) || 0) + 1);
-    }
+    // Build option universe from facetCounts (i.e., only values that exist under current other filters)
+    // Keep selected values visible even if facetCounts says 0 (edge case), so user can unselect.
+    const optionSet = new Set(facetCounts.keys());
+    for (const v of selected) optionSet.add(v);
+
+    // Sort options: highest count first, then alpha
+    const options = Array.from(optionSet).sort((a,b) => {
+      const ca = facetCounts.get(a) || 0;
+      const cb = facetCounts.get(b) || 0;
+      if (cb !== ca) return cb - ca;
+      return a.localeCompare(b);
+    });
 
     const search = document.createElement("input");
     search.className = "input";
     search.type = "text";
     search.placeholder = "Search options…";
+    search.setAttribute("data-filter-search", "1");
+    search.setAttribute("data-col", col);
+    search.value = prevSearchText.get(col) || "";
 
     const actionsRow = document.createElement("div");
     actionsRow.className = "facet-actions";
 
     const btnAll = document.createElement("button");
     btnAll.className = "small-btn";
-    btnAll.textContent = "Select All";
+    btnAll.textContent = "Select All (visible)";
     btnAll.addEventListener("click", (ev) => {
       ev.stopPropagation();
-      filterState.columns[col].value = [...uniq];
+      // select all visible options after search filter applied and with non-zero count
+      const ft = toLower(search.value);
+      const visible = options.filter(v => (!ft || toLower(v).includes(ft)) && ((facetCounts.get(v) || 0) > 0));
+      filterState.columns[col].value = visible;
       autoCollapseIfActive(col);
-      buildFiltersUI();
       applyFiltersAndRender();
     });
 
@@ -378,7 +503,6 @@ function buildFiltersUI() {
       ev.stopPropagation();
       filterState.columns[col].value = [];
       filterState.columns[col].collapsed = false;
-      buildFiltersUI();
       applyFiltersAndRender();
     });
 
@@ -388,11 +512,17 @@ function buildFiltersUI() {
     const list = document.createElement("div");
     list.className = "facet-list";
 
-    function renderOptionList(filterText = "") {
-      const ft = toLower(filterText);
+    function renderOptionList() {
+      const ft = toLower(search.value);
       list.innerHTML = "";
 
-      const visible = uniq.filter(v => !ft || toLower(v).includes(ft));
+      // Hide zero-count options unless selected (selected should remain visible for unchecking)
+      const visible = options.filter(v => {
+        if (ft && !toLower(v).includes(ft)) return false;
+        const count = facetCounts.get(v) || 0;
+        if (count > 0) return true;
+        return selected.has(v);
+      });
 
       if (!visible.length) {
         const empty = document.createElement("div");
@@ -410,7 +540,6 @@ function buildFiltersUI() {
         const cb = document.createElement("input");
         cb.type = "checkbox";
         cb.checked = selected.has(v);
-
         cb.addEventListener("click", (ev) => ev.stopPropagation());
 
         cb.addEventListener("change", () => {
@@ -418,10 +547,11 @@ function buildFiltersUI() {
           else selected.delete(v);
 
           filterState.columns[col].value = Array.from(selected);
+
+          // Auto-collapse after selecting options
           autoCollapseIfActive(col);
 
           applyFiltersAndRender();
-          buildFiltersUI();
         });
 
         const textWrap = document.createElement("div");
@@ -433,7 +563,7 @@ function buildFiltersUI() {
 
         const countSpan = document.createElement("div");
         countSpan.className = "facet-count";
-        countSpan.textContent = String(counts.get(v) || 0);
+        countSpan.textContent = String(facetCounts.get(v) || 0);
 
         textWrap.appendChild(valueSpan);
         textWrap.appendChild(countSpan);
@@ -445,9 +575,9 @@ function buildFiltersUI() {
     }
 
     search.addEventListener("click", (ev) => ev.stopPropagation());
-    search.addEventListener("input", () => renderOptionList(search.value));
+    search.addEventListener("input", renderOptionList);
 
-    renderOptionList("");
+    renderOptionList();
 
     body.appendChild(search);
     body.appendChild(actionsRow);
@@ -455,100 +585,6 @@ function buildFiltersUI() {
 
     wrap.appendChild(body);
     filtersContainer.appendChild(wrap);
-  }
-}
-
-// ---------- Filtering / Sorting ----------
-function rowMatchesFilters(row) {
-  const g = toLower(filterState.global);
-  if (g) {
-    let found = false;
-    for (const col of columns) {
-      if (toLower(row[col]).includes(g)) { found = true; break; }
-    }
-    if (!found) return false;
-  }
-
-  for (const col of columns) {
-    const f = filterState.columns[col];
-    if (!f) continue;
-
-    const val = normalizeValue(row[col]);
-
-    if (f.type === "text") {
-      const q = normalizeValue(f.value);
-      if (!q) continue;
-      if (!toLower(val).includes(toLower(q))) return false;
-      continue;
-    }
-
-    if (f.type === "multi") {
-      const selected = Array.isArray(f.value) ? f.value : [];
-      if (!selected.length) continue;
-      if (!selected.includes(val)) return false;
-      continue;
-    }
-  }
-
-  return true;
-}
-
-function sortRows(rows) {
-  if (!sortState.col) return rows;
-  const col = sortState.col;
-  const dir = sortState.dir;
-
-  const sorted = [...rows].sort((a,b) => {
-    const av = normalizeValue(a[col]);
-    const bv = normalizeValue(b[col]);
-
-    const an = Number(av);
-    const bn = Number(bv);
-    const aNum = Number.isFinite(an) && av !== "";
-    const bNum = Number.isFinite(bn) && bv !== "";
-
-    let cmp;
-    if (aNum && bNum) cmp = an - bn;
-    else cmp = av.localeCompare(bv, undefined, { numeric: true, sensitivity: "base" });
-
-    return dir === "asc" ? cmp : -cmp;
-  });
-
-  return sorted;
-}
-
-function applyFiltersAndRender() {
-  if (!rawRows.length) return;
-
-  const matched = rawRows.filter(rowMatchesFilters);
-  filteredRows = sortRows(matched);
-
-  filteredCount.textContent = String(filteredRows.length);
-  rowCount.textContent = String(rawRows.length);
-
-  renderTableBody(filteredRows);
-}
-
-function renderTableBody(rows) {
-  tableBody.innerHTML = "";
-
-  const RENDER_LIMIT = 2000;
-  const displayRows = rows.slice(0, RENDER_LIMIT);
-
-  for (const r of displayRows) {
-    const tr = document.createElement("tr");
-    for (const col of columns) {
-      const td = document.createElement("td");
-      td.textContent = normalizeValue(r[col]);
-      tr.appendChild(td);
-    }
-    tableBody.appendChild(tr);
-  }
-
-  if (rows.length > RENDER_LIMIT) {
-    setStatus(`Showing first ${RENDER_LIMIT} of ${rows.length} filtered rows (export includes all).`, "muted");
-  } else {
-    setStatus("Loaded. Use filters on the left to narrow results.", "muted");
   }
 }
 
@@ -587,13 +623,10 @@ csvFile.addEventListener("change", (e) => {
     dynamicTyping: false,
     complete: (results) => {
       const data = results.data || [];
-
       const fields = results.meta?.fields || [];
       columns = fields.filter(Boolean);
 
-      if (!columns.length && data.length) {
-        columns = Object.keys(data[0]);
-      }
+      if (!columns.length && data.length) columns = Object.keys(data[0]);
 
       rawRows = data.map((r) => {
         const obj = {};
@@ -607,16 +640,13 @@ csvFile.addEventListener("change", (e) => {
       enableControls(true);
 
       globalSearch.value = "";
-      buildFiltersUI();
       buildTableHeader();
       applyFiltersAndRender();
       refreshPresetSelect();
 
       setStatus("CSV loaded successfully.", "muted");
     },
-    error: () => {
-      setStatus("Failed to parse CSV. Confirm it is a valid .csv file with headers.", "danger");
-    }
+    error: () => setStatus("Failed to parse CSV. Confirm it is a valid .csv file with headers.", "danger")
   });
 });
 
@@ -632,16 +662,13 @@ btnClear.addEventListener("click", () => {
   for (const c of columns) {
     const f = filterState.columns[c];
     if (!f) continue;
-
     if (f.type === "text") f.value = "";
     if (f.type === "multi") f.value = [];
-
     f.collapsed = false;
   }
 
   sortState = { col: null, dir: "asc" };
   buildTableHeader();
-  buildFiltersUI();
   applyFiltersAndRender();
 });
 
