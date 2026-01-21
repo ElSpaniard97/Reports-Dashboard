@@ -8,6 +8,7 @@
   --border:#223156;
   --accent:#4c7dff;
   --danger:#ff4c4c;
+  --success:#3ddc97;
   --shadow: 0 10px 30px rgba(0,0,0,.35);
   --radius: 14px;
   --font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
@@ -22,6 +23,7 @@ body[data-theme="light"]{
   --border:#d6deee;
   --accent:#2f62ff;
   --danger:#d93025;
+  --success:#0f9d58;
   --shadow: 0 10px 25px rgba(0,0,0,.10);
 }
 
@@ -33,6 +35,92 @@ body{
   color:var(--text);
 }
 
+/* ---------- AUTH (LOGIN) ---------- */
+.auth{
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+}
+
+.auth-card{
+  width: 100%;
+  max-width: 520px;
+  background: rgba(16,26,48,.85);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 2px);
+  box-shadow: var(--shadow);
+  padding: 16px;
+}
+body[data-theme="light"] .auth-card{
+  background: rgba(255,255,255,.92);
+}
+
+.auth-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom: 14px;
+}
+
+.auth-title{
+  font-weight: 900;
+  letter-spacing: .2px;
+  font-size: 18px;
+}
+
+.auth-subtitle{
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.auth-form{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+
+.auth-label{
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+
+.auth-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin-top: 2px;
+}
+
+.auth-remember{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-size: 12px;
+  color: var(--muted);
+  user-select:none;
+}
+
+.auth-btn{
+  margin-top: 6px;
+  width: 100%;
+}
+
+.auth-foot{
+  margin-top: 10px;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+/* App shell wrapper */
+.app-shell[hidden]{ display:none; }
+
+/* ---------- TOPBAR / TABS ---------- */
 .topbar{
   display:flex;
   align-items:center;
@@ -75,6 +163,7 @@ body[data-theme="light"] .topbar{
   background: rgba(76,125,255,.18);
 }
 
+/* ---------- SUBBAR ---------- */
 .subbar{
   display:flex;
   align-items:center;
@@ -188,6 +277,8 @@ body[data-theme="light"] .panel{
 .v{ color:var(--text); word-break:break-word; }
 
 .status{ margin-top:10px; font-size:12px; }
+.status.danger{ color: var(--danger); }
+.status.success{ color: var(--success); }
 .muted{ color:var(--muted); }
 
 .input, .select{
@@ -545,77 +636,4 @@ tbody tr:hover{
 }
 .facet-list::-webkit-scrollbar-track{
   background: rgba(0,0,0,0);
-}
-
-/* ---------- LOGIN GATE ---------- */
-.app-shell{ display:none; }
-.login-shell{
-  min-height: 100vh;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  padding: 24px;
-}
-
-body.is-authed .app-shell{ display:block; }
-body.is-authed .login-shell{ display:none; }
-
-.login-card{
-  width: min(420px, 100%);
-  background: rgba(16,26,48,.85);
-  border:1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 18px;
-  box-shadow: var(--shadow);
-}
-body[data-theme="light"] .login-card{
-  background: rgba(255,255,255,.92);
-}
-
-.login-brand{
-  font-weight: 900;
-  letter-spacing: .2px;
-  font-size: 14px;
-  margin-bottom: 8px;
-}
-
-.login-title{
-  font-weight: 900;
-  letter-spacing: .2px;
-  font-size: 22px;
-  margin-bottom: 6px;
-}
-
-.login-subtitle{
-  font-size: 12px;
-  margin-bottom: 14px;
-}
-
-.login-form{
-  display:flex;
-  flex-direction:column;
-  gap: 10px;
-}
-
-.login-label{
-  font-size: 12px;
-  color: var(--muted);
-  margin-top: 2px;
-}
-
-.login-error{
-  min-height: 18px;
-  font-size: 12px;
-  color: var(--danger);
-}
-
-.login-btn{
-  width: 100%;
-  margin-top: 4px;
-}
-
-.login-foot{
-  margin-top: 12px;
-  font-size: 11px;
-  line-height: 1.35;
 }
