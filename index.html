@@ -8,295 +8,339 @@
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
-      <div class="brand-title">Inventory Reports Dashboard</div>
-      <div class="brand-subtitle">Upload CSV • Filter (Multi-select) • Save Views • Export</div>
-
-      <nav class="tabs" aria-label="Report Sections">
-        <button class="tab is-active" data-tab="stock" type="button">Stock Report</button>
-        <button class="tab" data-tab="hardware" type="button">Hardware Consumption Report</button>
-        <button class="tab" data-tab="accessories" type="button">Accessories Consumption Report</button>
-      </nav>
-    </div>
-
-    <div class="top-actions">
-      <button id="themeToggle" class="btn secondary" type="button" title="Toggle light/dark">
-        Theme: Dark
-      </button>
-    </div>
-  </header>
-
-  <!-- STOCK REPORT -->
-  <section class="report is-active" data-report="stock">
-    <div class="subbar">
-      <div class="subbar-left">
-        <div class="subbar-title">Stock Report</div>
-        <div class="subbar-subtitle muted">Upload a Stock CSV and use filters/presets as needed.</div>
-      </div>
-      <div class="subbar-actions">
-        <label class="file-btn">
-          <input data-role="csvFile" type="file" accept=".csv,text/csv" />
-          Upload CSV
-        </label>
-        <button data-role="btnClear" class="btn secondary" disabled type="button">Clear Filters</button>
-        <button data-role="btnExport" class="btn" disabled type="button">Export Filtered CSV</button>
-      </div>
-    </div>
-
-    <main class="layout">
-      <aside class="sidebar">
-        <section class="panel">
-          <h2>Dataset</h2>
-          <div class="kv">
-            <div class="k">File</div><div data-role="fileName" class="v">—</div>
-            <div class="k">Rows</div><div data-role="rowCount" class="v">—</div>
-            <div class="k">Filtered</div><div data-role="filteredCount" class="v">—</div>
-          </div>
-          <div data-role="statusMsg" class="status muted">Upload a CSV to begin.</div>
-        </section>
-
-        <section class="panel">
-          <h2>Search</h2>
-          <input data-role="globalSearch" class="input" type="text" placeholder="Search across all columns…" disabled />
-          <div class="hint">Tip: update filters/search, then click Apply to refresh results.</div>
-        </section>
-
-        <section class="panel">
-          <h2>Saved Views</h2>
-
-          <div class="preset-row">
-            <input data-role="presetName" class="input" type="text" placeholder="Preset name (e.g., 'Austin - In Stock')" disabled />
-            <button data-role="btnSavePreset" class="btn" disabled type="button">Save</button>
-          </div>
-
-          <div class="preset-row">
-            <select data-role="presetSelect" class="select" disabled>
-              <option value="">— Select a preset —</option>
-            </select>
-            <button data-role="btnLoadPreset" class="btn secondary" disabled type="button">Load</button>
-          </div>
-
-          <div class="preset-actions">
-            <button data-role="btnRenamePreset" class="btn secondary" disabled type="button">Rename</button>
-            <button data-role="btnDeletePreset" class="btn danger" disabled type="button">Delete</button>
-          </div>
-
-          <div class="hint">Presets are saved to this browser (localStorage) per report section.</div>
-        </section>
-
-        <section class="panel">
-          <div class="filters-head">
-            <h2>Filters</h2>
-            <button data-role="btnApply" class="btn" disabled type="button">Apply</button>
-          </div>
-          <div data-role="filtersContainer" class="filters"></div>
-          <div class="hint">Dropdowns stay open until you close them. Results update only when you click Apply.</div>
-        </section>
-      </aside>
-
-      <section class="content">
-        <section class="dash">
-          <div class="dash-head">
-            <div class="dash-title">Dashboard Summary</div>
-            <div class="dash-subtitle muted">Updates when you click Apply</div>
-          </div>
-
-          <div data-role="kpiRow" class="kpis"></div>
-          <div data-role="breakdownGrid" class="breakdowns"></div>
-        </section>
-
-        <div class="table-wrap">
-          <table>
-            <thead data-role="tableHead"></thead>
-            <tbody data-role="tableBody"></tbody>
-          </table>
+  <!-- AUTH GATE -->
+  <section id="authGate" class="auth" aria-label="Login">
+    <div class="auth-card" role="dialog" aria-modal="true">
+      <div class="auth-head">
+        <div>
+          <div class="auth-title">Inventory Reports Dashboard</div>
+          <div class="auth-subtitle muted">Sign in to continue</div>
         </div>
-      </section>
-    </main>
+        <button id="themeToggleAuth" class="btn secondary" type="button" title="Toggle light/dark">
+          Theme: Dark
+        </button>
+      </div>
+
+      <form id="loginForm" class="auth-form" autocomplete="off">
+        <label class="auth-label" for="loginUser">Username</label>
+        <input id="loginUser" class="input" type="text" inputmode="text" autocomplete="off" required />
+
+        <label class="auth-label" for="loginPass">Password</label>
+        <input id="loginPass" class="input" type="password" autocomplete="off" required />
+
+        <div class="auth-row">
+          <label class="auth-remember">
+            <input id="rememberMe" type="checkbox" />
+            Remember me on this device
+          </label>
+        </div>
+
+        <div id="loginMsg" class="status muted" aria-live="polite">Enter your credentials.</div>
+
+        <button class="btn auth-btn" type="submit">Sign In</button>
+
+        <div class="auth-foot muted">
+          Static site note: this login gate is client-side for convenience and does not provide strong security.
+        </div>
+      </form>
+    </div>
   </section>
 
-  <!-- HARDWARE CONSUMPTION REPORT -->
-  <section class="report" data-report="hardware">
-    <div class="subbar">
-      <div class="subbar-left">
-        <div class="subbar-title">Hardware Consumption Report</div>
-        <div class="subbar-subtitle muted">Upload a Hardware Consumption CSV and use filters/presets as needed.</div>
+  <!-- APP SHELL (hidden until authenticated) -->
+  <div id="appShell" class="app-shell" hidden>
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-title">Inventory Reports Dashboard</div>
+        <div class="brand-subtitle">Upload CSV • Filter (Multi-select) • Save Views • Export</div>
+
+        <nav class="tabs" aria-label="Report Sections">
+          <button class="tab is-active" data-tab="stock" type="button">Stock Report</button>
+          <button class="tab" data-tab="hardware" type="button">Hardware Consumption Report</button>
+          <button class="tab" data-tab="accessories" type="button">Accessories Consumption Report</button>
+        </nav>
       </div>
-      <div class="subbar-actions">
-        <label class="file-btn">
-          <input data-role="csvFile" type="file" accept=".csv,text/csv" />
-          Upload CSV
-        </label>
-        <button data-role="btnClear" class="btn secondary" disabled type="button">Clear Filters</button>
-        <button data-role="btnExport" class="btn" disabled type="button">Export Filtered CSV</button>
+
+      <div class="top-actions">
+        <button id="themeToggle" class="btn secondary" type="button" title="Toggle light/dark">
+          Theme: Dark
+        </button>
+        <button id="logoutBtn" class="btn danger" type="button" title="Sign out">
+          Logout
+        </button>
       </div>
-    </div>
+    </header>
 
-    <main class="layout">
-      <aside class="sidebar">
-        <section class="panel">
-          <h2>Dataset</h2>
-          <div class="kv">
-            <div class="k">File</div><div data-role="fileName" class="v">—</div>
-            <div class="k">Rows</div><div data-role="rowCount" class="v">—</div>
-            <div class="k">Filtered</div><div data-role="filteredCount" class="v">—</div>
-          </div>
-          <div data-role="statusMsg" class="status muted">Upload a CSV to begin.</div>
-        </section>
-
-        <section class="panel">
-          <h2>Search</h2>
-          <input data-role="globalSearch" class="input" type="text" placeholder="Search across all columns…" disabled />
-          <div class="hint">Tip: update filters/search, then click Apply to refresh results.</div>
-        </section>
-
-        <section class="panel">
-          <h2>Saved Views</h2>
-
-          <div class="preset-row">
-            <input data-role="presetName" class="input" type="text" placeholder="Preset name (e.g., 'Austin - In Stock')" disabled />
-            <button data-role="btnSavePreset" class="btn" disabled type="button">Save</button>
-          </div>
-
-          <div class="preset-row">
-            <select data-role="presetSelect" class="select" disabled>
-              <option value="">— Select a preset —</option>
-            </select>
-            <button data-role="btnLoadPreset" class="btn secondary" disabled type="button">Load</button>
-          </div>
-
-          <div class="preset-actions">
-            <button data-role="btnRenamePreset" class="btn secondary" disabled type="button">Rename</button>
-            <button data-role="btnDeletePreset" class="btn danger" disabled type="button">Delete</button>
-          </div>
-
-          <div class="hint">Presets are saved to this browser (localStorage) per report section.</div>
-        </section>
-
-        <section class="panel">
-          <div class="filters-head">
-            <h2>Filters</h2>
-            <button data-role="btnApply" class="btn" disabled type="button">Apply</button>
-          </div>
-          <div data-role="filtersContainer" class="filters"></div>
-          <div class="hint">Dropdowns stay open until you close them. Results update only when you click Apply.</div>
-        </section>
-      </aside>
-
-      <section class="content">
-        <section class="dash">
-          <div class="dash-head">
-            <div class="dash-title">Dashboard Summary</div>
-            <div class="dash-subtitle muted">Updates when you click Apply</div>
-          </div>
-
-          <div data-role="kpiRow" class="kpis"></div>
-          <div data-role="breakdownGrid" class="breakdowns"></div>
-        </section>
-
-        <div class="table-wrap">
-          <table>
-            <thead data-role="tableHead"></thead>
-            <tbody data-role="tableBody"></tbody>
-          </table>
+    <!-- STOCK REPORT -->
+    <section class="report is-active" data-report="stock">
+      <div class="subbar">
+        <div class="subbar-left">
+          <div class="subbar-title">Stock Report</div>
+          <div class="subbar-subtitle muted">Upload a Stock CSV and use filters/presets as needed.</div>
         </div>
-      </section>
-    </main>
-  </section>
-
-  <!-- ACCESSORIES CONSUMPTION REPORT -->
-  <section class="report" data-report="accessories">
-    <div class="subbar">
-      <div class="subbar-left">
-        <div class="subbar-title">Accessories Consumption Report</div>
-        <div class="subbar-subtitle muted">Upload an Accessories Consumption CSV and use filters/presets as needed.</div>
-      </div>
-      <div class="subbar-actions">
-        <label class="file-btn">
-          <input data-role="csvFile" type="file" accept=".csv,text/csv" />
-          Upload CSV
-        </label>
-        <button data-role="btnClear" class="btn secondary" disabled type="button">Clear Filters</button>
-        <button data-role="btnExport" class="btn" disabled type="button">Export Filtered CSV</button>
-      </div>
-    </div>
-
-    <main class="layout">
-      <aside class="sidebar">
-        <section class="panel">
-          <h2>Dataset</h2>
-          <div class="kv">
-            <div class="k">File</div><div data-role="fileName" class="v">—</div>
-            <div class="k">Rows</div><div data-role="rowCount" class="v">—</div>
-            <div class="k">Filtered</div><div data-role="filteredCount" class="v">—</div>
-          </div>
-          <div data-role="statusMsg" class="status muted">Upload a CSV to begin.</div>
-        </section>
-
-        <section class="panel">
-          <h2>Search</h2>
-          <input data-role="globalSearch" class="input" type="text" placeholder="Search across all columns…" disabled />
-          <div class="hint">Tip: update filters/search, then click Apply to refresh results.</div>
-        </section>
-
-        <section class="panel">
-          <h2>Saved Views</h2>
-
-          <div class="preset-row">
-            <input data-role="presetName" class="input" type="text" placeholder="Preset name (e.g., 'Austin - In Stock')" disabled />
-            <button data-role="btnSavePreset" class="btn" disabled type="button">Save</button>
-          </div>
-
-          <div class="preset-row">
-            <select data-role="presetSelect" class="select" disabled>
-              <option value="">— Select a preset —</option>
-            </select>
-            <button data-role="btnLoadPreset" class="btn secondary" disabled type="button">Load</button>
-          </div>
-
-          <div class="preset-actions">
-            <button data-role="btnRenamePreset" class="btn secondary" disabled type="button">Rename</button>
-            <button data-role="btnDeletePreset" class="btn danger" disabled type="button">Delete</button>
-          </div>
-
-          <div class="hint">Presets are saved to this browser (localStorage) per report section.</div>
-        </section>
-
-        <section class="panel">
-          <div class="filters-head">
-            <h2>Filters</h2>
-            <button data-role="btnApply" class="btn" disabled type="button">Apply</button>
-          </div>
-          <div data-role="filtersContainer" class="filters"></div>
-          <div class="hint">Dropdowns stay open until you close them. Results update only when you click Apply.</div>
-        </section>
-      </aside>
-
-      <section class="content">
-        <section class="dash">
-          <div class="dash-head">
-            <div class="dash-title">Dashboard Summary</div>
-            <div class="dash-subtitle muted">Updates when you click Apply</div>
-          </div>
-
-          <div data-role="kpiRow" class="kpis"></div>
-          <div data-role="breakdownGrid" class="breakdowns"></div>
-        </section>
-
-        <div class="table-wrap">
-          <table>
-            <thead data-role="tableHead"></thead>
-            <tbody data-role="tableBody"></tbody>
-          </table>
+        <div class="subbar-actions">
+          <label class="file-btn">
+            <input data-role="csvFile" type="file" accept=".csv,text/csv" />
+            Upload CSV
+          </label>
+          <button data-role="btnClear" class="btn secondary" disabled type="button">Clear Filters</button>
+          <button data-role="btnExport" class="btn" disabled type="button">Export Filtered CSV</button>
         </div>
-      </section>
-    </main>
-  </section>
+      </div>
 
-  <footer class="footer">
-    <div class="muted">Static dashboard • No data leaves your browser</div>
-  </footer>
+      <main class="layout">
+        <aside class="sidebar">
+          <section class="panel">
+            <h2>Dataset</h2>
+            <div class="kv">
+              <div class="k">File</div><div data-role="fileName" class="v">—</div>
+              <div class="k">Rows</div><div data-role="rowCount" class="v">—</div>
+              <div class="k">Filtered</div><div data-role="filteredCount" class="v">—</div>
+            </div>
+            <div data-role="statusMsg" class="status muted">Upload a CSV to begin.</div>
+          </section>
+
+          <section class="panel">
+            <h2>Search</h2>
+            <input data-role="globalSearch" class="input" type="text" placeholder="Search across all columns…" disabled />
+            <div class="hint">Tip: update filters/search, then click Apply to refresh results.</div>
+          </section>
+
+          <section class="panel">
+            <h2>Saved Views</h2>
+
+            <div class="preset-row">
+              <input data-role="presetName" class="input" type="text" placeholder="Preset name (e.g., 'Austin - In Stock')" disabled />
+              <button data-role="btnSavePreset" class="btn" disabled type="button">Save</button>
+            </div>
+
+            <div class="preset-row">
+              <select data-role="presetSelect" class="select" disabled>
+                <option value="">— Select a preset —</option>
+              </select>
+              <button data-role="btnLoadPreset" class="btn secondary" disabled type="button">Load</button>
+            </div>
+
+            <div class="preset-actions">
+              <button data-role="btnRenamePreset" class="btn secondary" disabled type="button">Rename</button>
+              <button data-role="btnDeletePreset" class="btn danger" disabled type="button">Delete</button>
+            </div>
+
+            <div class="hint">Presets are saved to this browser (localStorage) per report section.</div>
+          </section>
+
+          <section class="panel">
+            <div class="filters-head">
+              <h2>Filters</h2>
+              <button data-role="btnApply" class="btn" disabled type="button">Apply</button>
+            </div>
+            <div data-role="filtersContainer" class="filters"></div>
+            <div class="hint">Dropdowns stay open until you close them. Results update only when you click Apply.</div>
+          </section>
+        </aside>
+
+        <section class="content">
+          <section class="dash">
+            <div class="dash-head">
+              <div class="dash-title">Dashboard Summary</div>
+              <div class="dash-subtitle muted">Updates when you click Apply</div>
+            </div>
+
+            <div data-role="kpiRow" class="kpis"></div>
+            <div data-role="breakdownGrid" class="breakdowns"></div>
+          </section>
+
+          <div class="table-wrap">
+            <table>
+              <thead data-role="tableHead"></thead>
+              <tbody data-role="tableBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </section>
+
+    <!-- HARDWARE CONSUMPTION REPORT -->
+    <section class="report" data-report="hardware">
+      <div class="subbar">
+        <div class="subbar-left">
+          <div class="subbar-title">Hardware Consumption Report</div>
+          <div class="subbar-subtitle muted">Upload a Hardware Consumption CSV and use filters/presets as needed.</div>
+        </div>
+        <div class="subbar-actions">
+          <label class="file-btn">
+            <input data-role="csvFile" type="file" accept=".csv,text/csv" />
+            Upload CSV
+          </label>
+          <button data-role="btnClear" class="btn secondary" disabled type="button">Clear Filters</button>
+          <button data-role="btnExport" class="btn" disabled type="button">Export Filtered CSV</button>
+        </div>
+      </div>
+
+      <main class="layout">
+        <aside class="sidebar">
+          <section class="panel">
+            <h2>Dataset</h2>
+            <div class="kv">
+              <div class="k">File</div><div data-role="fileName" class="v">—</div>
+              <div class="k">Rows</div><div data-role="rowCount" class="v">—</div>
+              <div class="k">Filtered</div><div data-role="filteredCount" class="v">—</div>
+            </div>
+            <div data-role="statusMsg" class="status muted">Upload a CSV to begin.</div>
+          </section>
+
+          <section class="panel">
+            <h2>Search</h2>
+            <input data-role="globalSearch" class="input" type="text" placeholder="Search across all columns…" disabled />
+            <div class="hint">Tip: update filters/search, then click Apply to refresh results.</div>
+          </section>
+
+          <section class="panel">
+            <h2>Saved Views</h2>
+
+            <div class="preset-row">
+              <input data-role="presetName" class="input" type="text" placeholder="Preset name (e.g., 'Austin - In Stock')" disabled />
+              <button data-role="btnSavePreset" class="btn" disabled type="button">Save</button>
+            </div>
+
+            <div class="preset-row">
+              <select data-role="presetSelect" class="select" disabled>
+                <option value="">— Select a preset —</option>
+              </select>
+              <button data-role="btnLoadPreset" class="btn secondary" disabled type="button">Load</button>
+            </div>
+
+            <div class="preset-actions">
+              <button data-role="btnRenamePreset" class="btn secondary" disabled type="button">Rename</button>
+              <button data-role="btnDeletePreset" class="btn danger" disabled type="button">Delete</button>
+            </div>
+
+            <div class="hint">Presets are saved to this browser (localStorage) per report section.</div>
+          </section>
+
+          <section class="panel">
+            <div class="filters-head">
+              <h2>Filters</h2>
+              <button data-role="btnApply" class="btn" disabled type="button">Apply</button>
+            </div>
+            <div data-role="filtersContainer" class="filters"></div>
+            <div class="hint">Dropdowns stay open until you close them. Results update only when you click Apply.</div>
+          </section>
+        </aside>
+
+        <section class="content">
+          <section class="dash">
+            <div class="dash-head">
+              <div class="dash-title">Dashboard Summary</div>
+              <div class="dash-subtitle muted">Updates when you click Apply</div>
+            </div>
+
+            <div data-role="kpiRow" class="kpis"></div>
+            <div data-role="breakdownGrid" class="breakdowns"></div>
+          </section>
+
+          <div class="table-wrap">
+            <table>
+              <thead data-role="tableHead"></thead>
+              <tbody data-role="tableBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </section>
+
+    <!-- ACCESSORIES CONSUMPTION REPORT -->
+    <section class="report" data-report="accessories">
+      <div class="subbar">
+        <div class="subbar-left">
+          <div class="subbar-title">Accessories Consumption Report</div>
+          <div class="subbar-subtitle muted">Upload an Accessories Consumption CSV and use filters/presets as needed.</div>
+        </div>
+        <div class="subbar-actions">
+          <label class="file-btn">
+            <input data-role="csvFile" type="file" accept=".csv,text/csv" />
+            Upload CSV
+          </label>
+          <button data-role="btnClear" class="btn secondary" disabled type="button">Clear Filters</button>
+          <button data-role="btnExport" class="btn" disabled type="button">Export Filtered CSV</button>
+        </div>
+      </div>
+
+      <main class="layout">
+        <aside class="sidebar">
+          <section class="panel">
+            <h2>Dataset</h2>
+            <div class="kv">
+              <div class="k">File</div><div data-role="fileName" class="v">—</div>
+              <div class="k">Rows</div><div data-role="rowCount" class="v">—</div>
+              <div class="k">Filtered</div><div data-role="filteredCount" class="v">—</div>
+            </div>
+            <div data-role="statusMsg" class="status muted">Upload a CSV to begin.</div>
+          </section>
+
+          <section class="panel">
+            <h2>Search</h2>
+            <input data-role="globalSearch" class="input" type="text" placeholder="Search across all columns…" disabled />
+            <div class="hint">Tip: update filters/search, then click Apply to refresh results.</div>
+          </section>
+
+          <section class="panel">
+            <h2>Saved Views</h2>
+
+            <div class="preset-row">
+              <input data-role="presetName" class="input" type="text" placeholder="Preset name (e.g., 'Austin - In Stock')" disabled />
+              <button data-role="btnSavePreset" class="btn" disabled type="button">Save</button>
+            </div>
+
+            <div class="preset-row">
+              <select data-role="presetSelect" class="select" disabled>
+                <option value="">— Select a preset —</option>
+              </select>
+              <button data-role="btnLoadPreset" class="btn secondary" disabled type="button">Load</button>
+            </div>
+
+            <div class="preset-actions">
+              <button data-role="btnRenamePreset" class="btn secondary" disabled type="button">Rename</button>
+              <button data-role="btnDeletePreset" class="btn danger" disabled type="button">Delete</button>
+            </div>
+
+            <div class="hint">Presets are saved to this browser (localStorage) per report section.</div>
+          </section>
+
+          <section class="panel">
+            <div class="filters-head">
+              <h2>Filters</h2>
+              <button data-role="btnApply" class="btn" disabled type="button">Apply</button>
+            </div>
+            <div data-role="filtersContainer" class="filters"></div>
+            <div class="hint">Dropdowns stay open until you close them. Results update only when you click Apply.</div>
+          </section>
+        </aside>
+
+        <section class="content">
+          <section class="dash">
+            <div class="dash-head">
+              <div class="dash-title">Dashboard Summary</div>
+              <div class="dash-subtitle muted">Updates when you click Apply</div>
+            </div>
+
+            <div data-role="kpiRow" class="kpis"></div>
+            <div data-role="breakdownGrid" class="breakdowns"></div>
+          </section>
+
+          <div class="table-wrap">
+            <table>
+              <thead data-role="tableHead"></thead>
+              <tbody data-role="tableBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </section>
+
+    <footer class="footer">
+      <div class="muted">Static dashboard • No data leaves your browser</div>
+    </footer>
+  </div>
 
   <script src="app.js"></script>
 </body>
