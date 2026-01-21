@@ -3,9 +3,31 @@
    - Each section mirrors full functionality:
        Upload CSV, Filters (multi-select), Apply workflow, Presets, Export, Dashboard summary, Sortable table
    - Light/Dark theme toggle (persisted)
+   - Simple client-side login gate
 */
 
 const FORCE_MULTI_COLUMNS = new Set(["model"]);
+
+// ---------- Simple Auth Gate (Client-side) ----------
+const AUTH_USER = "IndeedITAM";
+const AUTH_PASS = "Indeed1234";
+const AUTH_KEY = "reportsDashboardAuth_v1"; // store boolean
+
+function getAuthState() {
+  // prefer session; allow persistent via localStorage
+  const s = sessionStorage.getItem(AUTH_KEY);
+  if (s === "1") return true;
+  const l = localStorage.getItem(AUTH_KEY);
+  return l === "1";
+}
+function setAuthState({ remember }) {
+  if (remember) localStorage.setItem(AUTH_KEY, "1");
+  else sessionStorage.setItem(AUTH_KEY, "1");
+}
+function clearAuthState() {
+  sessionStorage.removeItem(AUTH_KEY);
+  localStorage.removeItem(AUTH_KEY);
+}
 
 // ---------- Theme ----------
 const THEME_KEY = "inventoryDashboardTheme_v1";
@@ -15,8 +37,13 @@ function getStoredTheme() {
 }
 function applyTheme(theme) {
   document.body.setAttribute("data-theme", theme);
+
   const btn = document.getElementById("themeToggle");
   if (btn) btn.textContent = `Theme: ${theme === "light" ? "Light" : "Dark"}`;
+
+  const btnAuth = document.getElementById("themeToggleAuth");
+  if (btnAuth) btnAuth.textContent = `Theme: ${theme === "light" ? "Light" : "Dark"}`;
+
   localStorage.setItem(THEME_KEY, theme);
 }
 function toggleTheme() {
@@ -956,12 +983,12 @@ class ReportDashboard {
   }
 }
 
-// ---------- Boot ----------
-(function init() {
-  // theme init
-  applyTheme(getStoredTheme());
-  const themeBtn = document.getElementById("themeToggle");
-  if (themeBtn) themeBtn.addEventListener("click", toggleTheme);
+// ---------- App Boot (guarded) ----------
+let APP_INITIALIZED = false;
+
+function initDashboardsAndTabs() {
+  if (APP_INITIALIZED) return;
+  APP_INITIALIZED = true;
 
   // dashboards
   const dashboards = new Map();
@@ -980,4 +1007,81 @@ class ReportDashboard {
 
   // default tab
   setActiveReport("stock");
+}
+
+function showApp() {
+  const gate = document.getElementById("authGate");
+  const shell = document.getElementById("appShell");
+  if (gate) gate.style.display = "none";
+  if (shell) shell.hidden = false;
+
+  initDashboardsAndTabs();
+
+  // theme toggle (app)
+  const themeBtn = document.getElementById("themeToggle");
+  if (themeBtn) themeBtn.addEventListener("click", toggleTheme);
+
+  // logout
+  const logoutBtn = document.getElementById("logoutBtn");
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", () => {
+      clearAuthState();
+      // simplest + safest reset for all dashboard state
+      window.location.reload();
+    });
+  }
+}
+
+function showGate() {
+  const gate = document.getElementById("authGate");
+  const shell = document.getElementById("appShell");
+  if (gate) gate.style.display = "flex";
+  if (shell) shell.hidden = true;
+}
+
+function wireAuthUI() {
+  const form = document.getElementById("loginForm");
+  const user = document.getElementById("loginUser");
+  const pass = document.getElementById("loginPass");
+  const msg = document.getElementById("loginMsg");
+  const remember = document.getElementById("rememberMe");
+
+  const themeBtnAuth = document.getElementById("themeToggleAuth");
+  if (themeBtnAuth) themeBtnAuth.addEventListener("click", toggleTheme);
+
+  if (!form || !user || !pass || !msg) return;
+
+  form.addEventListener("submit", (ev) => {
+    ev.preventDefault();
+
+    const u = normalizeValue(user.value);
+    const p = normalizeValue(pass.value);
+
+    if (u === AUTH_USER && p === AUTH_PASS) {
+      setAuthState({ remember: !!remember?.checked });
+      msg.className = "status success";
+      msg.textContent = "Authenticated. Loading dashboard…";
+      showApp();
+      return;
+    }
+
+    msg.className = "status danger";
+    msg.textContent = "Invalid username or password.";
+    pass.value = "";
+    pass.focus();
+  });
+}
+
+// ---------- Boot ----------
+(function init() {
+  // theme init (needed for both gate and app)
+  applyTheme(getStoredTheme());
+
+  wireAuthUI();
+
+  if (getAuthState()) {
+    showApp();
+  } else {
+    showGate();
+  }
 })();
